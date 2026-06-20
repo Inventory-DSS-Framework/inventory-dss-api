@@ -177,6 +177,26 @@ Este backend no solo registra datos. Su objetivo es transformar datos operativos
 * Cantidad sugerida de compra.
 * Reportes para toma de decisiones.
 
+## API Scaffold
+
+Esta fase crea el contrato completo inicial de endpoints del backend, visible desde Swagger.
+
+**URLs Locales:**
+* **Swagger UI:** http://localhost:8000/docs
+* **ReDoc:** http://localhost:8000/redoc
+* **Health Check:** http://localhost:8000/api/v1/health
+
+**Detalles del scaffold:**
+* Los endpoints devuelven respuestas placeholder estructuradas en JSON.
+* No hay conexión a base de datos todavía.
+* No hay autenticación real todavía.
+* No se llama al FTGM todavía.
+* No hay lógica profunda de negocio todavía.
+* La finalidad es validar el contrato API, los módulos y la arquitectura propuesta.
+
+Módulos principales integrados en Swagger:
+* System, Auth, Companies, Products, Sales, Inventory, Ingestion, Data Preparation, Forecasting, KPIs, Recommendations, Dashboard, Reports, Notifications, Files, Audit, Validation, Admin, Billing.
+
 ## Estado actual
 
-Este repositorio se encuentra en fase inicial. Contiene estructura base, configuración mínima de FastAPI y documentación arquitectónica inicial.
+Este repositorio se encuentra en la fase de **API Scaffold**. Contiene el esqueleto modular completo con arquitectura hexagonal, configuración de FastAPI y documentación en Swagger con endpoints placeholder. La lógica profunda de negocio y bases de datos se implementará en la siguiente iteración.
