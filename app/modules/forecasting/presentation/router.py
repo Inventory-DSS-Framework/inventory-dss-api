@@ -1,119 +1,161 @@
-from fastapi import APIRouter
-from app.shared.presentation.schemas import PlaceholderResponse
-from app.modules.forecasting.presentation.schemas import (
-    CreateForecastRunRequest, ForecastRunResponse, ExecuteForecastRequest,
-    ExecuteForecastFromCsvRequest, ForecastResultResponse, ForecastMetricsResponse,
-    ModelComparisonRequest, ModelComparisonResponse
+"""Forecasting module — HTTP routers wired to use cases.
+
+Implements the run lifecycle: create a run, execute it as a background job
+(ADR-002), poll status, cancel, and read results/metrics. The FTGM engine is called
+through FtgmHttpAdapter. Model comparison and CSV-driven execution stay as placeholders.
+"""
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, BackgroundTasks, Depends
+
+from app.modules.forecasting.application.dtos import (
+    ForecastMetricsDTO,
+    ForecastResultDTO,
+    ForecastRunDTO,
 )
+from app.modules.forecasting.application.use_cases.run import (
+    CancelForecastRun,
+    CreateForecastRun,
+    GetForecastRun,
+    ListForecastRuns,
+    ListRunMetrics,
+    ListRunResults,
+)
+from app.modules.forecasting.domain.repositories import (
+    ForecastMetricsRepository,
+    ForecastResultRepository,
+    ForecastRunRepository,
+)
+from app.modules.forecasting.infrastructure.background import run_forecast_job
+from app.modules.forecasting.presentation.dependencies import (
+    get_metrics_repository,
+    get_result_repository,
+    get_run_repository,
+)
+from app.modules.forecasting.presentation.schemas import CreateForecastRunRequest
+from app.shared.presentation.deps import (
+    AuthenticatedUser,
+    get_pagination,
+    require_company_access,
+)
+from app.shared.presentation.schemas import PaginationParams, PlaceholderResponse
 
 runs_router = APIRouter()
 forecasts_router = APIRouter()
 
-@runs_router.get("/health", response_model=PlaceholderResponse)
-def health_check(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="health_check")
 
-@runs_router.post("", response_model=ForecastRunResponse)
-def create_run(company_id: str, request: CreateForecastRunRequest) -> ForecastRunResponse:
-    return ForecastRunResponse(message="Endpoint scaffold ready", module="forecasting", action="create_run")
+@runs_router.post("", response_model=ForecastRunDTO, status_code=201)
+def create_run(
+    company_id: UUID,
+    request: CreateForecastRunRequest,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastRunRepository = Depends(get_run_repository),
+) -> ForecastRunDTO:
+    return CreateForecastRun(repo).execute(
+        company_id,
+        model_name=request.model_name,
+        horizon_days=request.horizon_days,
+        dataset_id=request.dataset_id,
+    )
 
-@runs_router.get("", response_model=PlaceholderResponse)
-def list_runs(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="list_runs")
 
-@runs_router.post("/execute", response_model=PlaceholderResponse)
-def execute_run(company_id: str, request: ExecuteForecastRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="execute_run")
+@runs_router.get("", response_model=list[ForecastRunDTO])
+def list_runs(
+    company_id: UUID,
+    pagination: PaginationParams = Depends(get_pagination),
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastRunRepository = Depends(get_run_repository),
+) -> list[ForecastRunDTO]:
+    return ListForecastRuns(repo).execute(
+        company_id,
+        offset=(pagination.page - 1) * pagination.size,
+        limit=pagination.size,
+    )
 
-@runs_router.post("/execute-from-csv", response_model=PlaceholderResponse)
-def execute_run_from_csv(company_id: str, request: ExecuteForecastFromCsvRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="execute_run_from_csv")
 
-@runs_router.post("/execute-from-prepared-dataset", response_model=PlaceholderResponse)
-def execute_run_from_prepared_dataset(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="execute_run_from_prepared_dataset")
+@runs_router.post("/{run_id}/execute", response_model=ForecastRunDTO, status_code=202)
+def execute_run(
+    company_id: UUID,
+    run_id: UUID,
+    background_tasks: BackgroundTasks,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastRunRepository = Depends(get_run_repository),
+) -> ForecastRunDTO:
+    run = GetForecastRun(repo).execute(run_id)  # 404 if missing
+    background_tasks.add_task(run_forecast_job, run_id)
+    return run
 
-@runs_router.post("/compare-models", response_model=ModelComparisonResponse)
-def compare_models(company_id: str, request: ModelComparisonRequest) -> ModelComparisonResponse:
-    return ModelComparisonResponse(message="Endpoint scaffold ready", module="forecasting", action="compare_models")
 
-@runs_router.get("/{run_id}", response_model=ForecastRunResponse)
-def get_run(company_id: str, run_id: str) -> ForecastRunResponse:
-    return ForecastRunResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run")
+@runs_router.post("/{run_id}/cancel", response_model=ForecastRunDTO)
+def cancel_run(
+    company_id: UUID,
+    run_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastRunRepository = Depends(get_run_repository),
+) -> ForecastRunDTO:
+    return CancelForecastRun(repo).execute(run_id)
 
-@runs_router.delete("/{run_id}", response_model=PlaceholderResponse)
-def delete_run(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="delete_run")
 
-@runs_router.post("/{run_id}/execute", response_model=PlaceholderResponse)
-def execute_specific_run(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="execute_specific_run")
+@runs_router.get("/{run_id}/status", response_model=ForecastRunDTO)
+def get_run_status(
+    company_id: UUID,
+    run_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastRunRepository = Depends(get_run_repository),
+) -> ForecastRunDTO:
+    return GetForecastRun(repo).execute(run_id)
 
-@runs_router.post("/{run_id}/cancel", response_model=PlaceholderResponse)
-def cancel_run(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="cancel_run")
 
-@runs_router.post("/{run_id}/retry", response_model=PlaceholderResponse)
-def retry_run(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="retry_run")
+@runs_router.get("/{run_id}/results", response_model=list[ForecastResultDTO])
+def get_run_results(
+    company_id: UUID,
+    run_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastResultRepository = Depends(get_result_repository),
+) -> list[ForecastResultDTO]:
+    return ListRunResults(repo).execute(run_id)
 
-@runs_router.get("/{run_id}/status", response_model=PlaceholderResponse)
-def get_run_status(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_status")
 
-@runs_router.get("/{run_id}/logs", response_model=PlaceholderResponse)
-def get_run_logs(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_logs")
+@runs_router.get("/{run_id}/metrics", response_model=list[ForecastMetricsDTO])
+def get_run_metrics(
+    company_id: UUID,
+    run_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastMetricsRepository = Depends(get_metrics_repository),
+) -> list[ForecastMetricsDTO]:
+    return ListRunMetrics(repo).execute(run_id)
 
-@runs_router.get("/{run_id}/errors", response_model=PlaceholderResponse)
-def get_run_errors(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_errors")
 
-@runs_router.get("/{run_id}/results", response_model=PlaceholderResponse)
-def get_run_results(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_results")
+@runs_router.get("/{run_id}", response_model=ForecastRunDTO)
+def get_run(
+    company_id: UUID,
+    run_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastRunRepository = Depends(get_run_repository),
+) -> ForecastRunDTO:
+    return GetForecastRun(repo).execute(run_id)
 
-@runs_router.get("/{run_id}/results/{product_id}", response_model=ForecastResultResponse)
-def get_run_results_by_product(company_id: str, run_id: str, product_id: str) -> ForecastResultResponse:
-    return ForecastResultResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_results_by_product")
 
-@runs_router.get("/{run_id}/metrics", response_model=PlaceholderResponse)
-def get_run_metrics(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_metrics")
+@runs_router.post("/compare-models", response_model=PlaceholderResponse)
+def compare_models(company_id: UUID) -> PlaceholderResponse:
+    # TODO: run FTGM vs baseline and compare metrics.
+    return PlaceholderResponse(
+        message="Endpoint scaffold ready", module="forecasting", action="compare_models"
+    )
 
-@runs_router.get("/{run_id}/metrics/{product_id}", response_model=ForecastMetricsResponse)
-def get_run_metrics_by_product(company_id: str, run_id: str, product_id: str) -> ForecastMetricsResponse:
-    return ForecastMetricsResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_metrics_by_product")
 
-@runs_router.get("/{run_id}/model-config", response_model=PlaceholderResponse)
-def get_run_model_config(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_model_config")
+# --- Forecast results convenience endpoints ----------------------------------
+@forecasts_router.get("/latest", response_model=ForecastRunDTO)
+def get_latest_run(
+    company_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: ForecastRunRepository = Depends(get_run_repository),
+) -> ForecastRunDTO:
+    latest = repo.get_latest_by_company(company_id)
+    if latest is None:
+        from app.modules.forecasting.domain.exceptions import ForecastRunNotFoundError
 
-@runs_router.get("/{run_id}/input-series", response_model=PlaceholderResponse)
-def get_run_input_series(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_input_series")
-
-@runs_router.get("/{run_id}/comparison", response_model=PlaceholderResponse)
-def get_run_comparison(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_comparison")
-
-@runs_router.get("/{run_id}/baseline-results", response_model=PlaceholderResponse)
-def get_run_baseline_results(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_run_baseline_results")
-
-# Forecasts
-@forecasts_router.get("/latest", response_model=PlaceholderResponse)
-def get_latest_forecasts(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_latest_forecasts")
-
-@forecasts_router.get("/latest/{product_id}", response_model=ForecastResultResponse)
-def get_latest_forecast_by_product(company_id: str, product_id: str) -> ForecastResultResponse:
-    return ForecastResultResponse(message="Endpoint scaffold ready", module="forecasting", action="get_latest_forecast_by_product")
-
-@forecasts_router.get("/history", response_model=PlaceholderResponse)
-def get_forecasts_history(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_forecasts_history")
-
-@forecasts_router.get("/by-product/{product_id}", response_model=PlaceholderResponse)
-def get_forecasts_by_product(company_id: str, product_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="forecasting", action="get_forecasts_by_product")
+        raise ForecastRunNotFoundError(message="No forecast runs for this company")
+    return ForecastRunDTO.from_entity(latest)
