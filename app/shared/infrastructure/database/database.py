@@ -13,9 +13,18 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Generator[Session, None, None]:
-    """Dependency to get a database session."""
+    """Per-request transactional session.
+
+    Commits once if the request handler succeeds; rolls back on any exception
+    (including domain errors). Repositories should ``flush()`` (not commit), so a
+    use case that performs several writes stays atomic within one transaction.
+    """
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
