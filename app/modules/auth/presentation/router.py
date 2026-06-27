@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.shared.presentation.schemas import PlaceholderResponse, MessageResponse
+from app.shared.presentation.schemas import PlaceholderResponse
 from app.modules.auth.presentation.schemas import RegisterRequest, LoginRequest, TokenResponse, CurrentUserResponse
 
 router = APIRouter()

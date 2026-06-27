@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from app.shared.presentation.schemas import PlaceholderResponse
-from app.modules.audit.presentation.schemas import AuditEventResponse, ActivityResponse
+from app.modules.audit.presentation.schemas import AuditEventResponse
 
 router = APIRouter()
 activity_router = APIRouter()
