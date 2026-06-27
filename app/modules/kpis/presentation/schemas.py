@@ -1,20 +1,16 @@
+"""KPIs module — presentation request schemas."""
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+from uuid import UUID
+
 from pydantic import BaseModel
-from app.shared.presentation.schemas import PlaceholderResponse
 
-class KpiDashboardResponse(PlaceholderResponse):
-    pass
 
-class KpiSummaryResponse(PlaceholderResponse):
-    pass
-
-class KpiSnapshotRequest(BaseModel):
-    pass
-
-class KpiSnapshotResponse(PlaceholderResponse):
-    pass
-
-class CalculateKpisRequest(BaseModel):
-    pass
-
-class ProductKpiResponse(PlaceholderResponse):
-    pass
+class RecordKpiRequest(BaseModel):
+    product_id: UUID
+    kpi_type: str
+    value: Decimal
+    run_id: UUID | None = None
+    computed_at: datetime | None = None

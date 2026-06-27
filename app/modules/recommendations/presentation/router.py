@@ -1,84 +1,118 @@
-from fastapi import APIRouter
-from app.shared.presentation.schemas import PlaceholderResponse
-from app.modules.recommendations.presentation.schemas import (
-    GenerateRecommendationsRequest, RecommendationResponse, RecommendationSummaryResponse,
-    SimulateReorderRequest, SimulateCoverageRequest
+"""Recommendations module — HTTP router wired to use cases.
+
+Implemented: create, list (with pending filter), get, accept, dismiss. Automatic
+generation from KPIs/forecasts is a placeholder for a later block.
+"""
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
+
+from app.modules.recommendations.application.dtos import RecommendationDTO
+from app.modules.forecasting.domain.repositories import (
+    ForecastResultRepository,
+    ForecastRunRepository,
 )
+from app.modules.inventory.domain.repositories import InventoryMovementRepository
+from app.modules.products.domain.repositories import ProductRepository
+from app.modules.recommendations.application.use_cases.generate import (
+    GenerateRecommendations,
+)
+from app.modules.recommendations.application.use_cases.recommendation import (
+    AcceptRecommendation,
+    CreateRecommendation,
+    DismissRecommendation,
+    GetRecommendation,
+    ListRecommendations,
+)
+from app.modules.recommendations.domain.repositories import RecommendationRepository
+from app.modules.recommendations.presentation.dependencies import (
+    get_movement_repository,
+    get_product_repository,
+    get_recommendation_repository,
+    get_result_repository,
+    get_run_repository,
+    parse_priority,
+)
+from app.modules.recommendations.presentation.schemas import (
+    CreateRecommendationRequest,
+)
+from app.shared.presentation.deps import AuthenticatedUser, require_company_access
 
 router = APIRouter()
 
-@router.get("/health", response_model=PlaceholderResponse)
-def health_check(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="health_check")
 
-@router.post("/generate", response_model=PlaceholderResponse)
-def generate_recommendations(company_id: str, request: GenerateRecommendationsRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="generate_recommendations")
+@router.get("", response_model=list[RecommendationDTO])
+def list_recommendations(
+    company_id: UUID,
+    pending_only: bool = False,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: RecommendationRepository = Depends(get_recommendation_repository),
+) -> list[RecommendationDTO]:
+    return ListRecommendations(repo).execute(company_id, pending_only=pending_only)
 
-@router.post("/generate-from-forecast/{run_id}", response_model=PlaceholderResponse)
-def generate_recommendations_from_forecast(company_id: str, run_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="generate_recommendations_from_forecast")
 
-@router.post("/generate-from-kpi-snapshot/{snapshot_id}", response_model=PlaceholderResponse)
-def generate_recommendations_from_kpi_snapshot(company_id: str, snapshot_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="generate_recommendations_from_kpi_snapshot")
+@router.post("", response_model=RecommendationDTO, status_code=201)
+def create_recommendation(
+    company_id: UUID,
+    request: CreateRecommendationRequest,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: RecommendationRepository = Depends(get_recommendation_repository),
+) -> RecommendationDTO:
+    return CreateRecommendation(repo).execute(
+        company_id,
+        product_id=request.product_id,
+        recommended_quantity=request.recommended_quantity,
+        priority=parse_priority(request.priority),
+        reason=request.reason,
+    )
 
-@router.get("", response_model=PlaceholderResponse)
-def list_recommendations(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="list_recommendations")
 
-@router.get("/critical", response_model=PlaceholderResponse)
-def get_critical_recommendations(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="get_critical_recommendations")
+@router.post("/generate", response_model=list[RecommendationDTO], status_code=201)
+def generate_recommendations(
+    company_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    recommendations: RecommendationRepository = Depends(get_recommendation_repository),
+    products: ProductRepository = Depends(get_product_repository),
+    runs: ForecastRunRepository = Depends(get_run_repository),
+    results: ForecastResultRepository = Depends(get_result_repository),
+    movements: InventoryMovementRepository = Depends(get_movement_repository),
+) -> list[RecommendationDTO]:
+    return GenerateRecommendations(
+        products=products,
+        runs=runs,
+        results=results,
+        movements=movements,
+        recommendations=recommendations,
+    ).execute(company_id)
 
-@router.get("/high-priority", response_model=PlaceholderResponse)
-def get_high_priority_recommendations(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="get_high_priority_recommendations")
 
-@router.get("/by-product/{product_id}", response_model=PlaceholderResponse)
-def get_recommendations_by_product(company_id: str, product_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="get_recommendations_by_product")
+@router.get("/{recommendation_id}", response_model=RecommendationDTO)
+def get_recommendation(
+    company_id: UUID,
+    recommendation_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: RecommendationRepository = Depends(get_recommendation_repository),
+) -> RecommendationDTO:
+    return GetRecommendation(repo).execute(recommendation_id)
 
-@router.get("/by-type", response_model=PlaceholderResponse)
-def get_recommendations_by_type(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="get_recommendations_by_type")
 
-@router.get("/summary", response_model=RecommendationSummaryResponse)
-def get_recommendations_summary(company_id: str) -> RecommendationSummaryResponse:
-    return RecommendationSummaryResponse(message="Endpoint scaffold ready", module="recommendations", action="get_recommendations_summary")
+@router.post("/{recommendation_id}/accept", response_model=RecommendationDTO)
+def accept_recommendation(
+    company_id: UUID,
+    recommendation_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: RecommendationRepository = Depends(get_recommendation_repository),
+) -> RecommendationDTO:
+    return AcceptRecommendation(repo).execute(recommendation_id)
 
-@router.post("/simulate-reorder", response_model=PlaceholderResponse)
-def simulate_reorder(company_id: str, request: SimulateReorderRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="simulate_reorder")
 
-@router.post("/simulate-coverage", response_model=PlaceholderResponse)
-def simulate_coverage(company_id: str, request: SimulateCoverageRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="simulate_coverage")
-
-@router.get("/{recommendation_id}", response_model=RecommendationResponse)
-def get_recommendation(company_id: str, recommendation_id: str) -> RecommendationResponse:
-    return RecommendationResponse(message="Endpoint scaffold ready", module="recommendations", action="get_recommendation")
-
-@router.patch("/{recommendation_id}", response_model=RecommendationResponse)
-def update_recommendation(company_id: str, recommendation_id: str) -> RecommendationResponse:
-    return RecommendationResponse(message="Endpoint scaffold ready", module="recommendations", action="update_recommendation")
-
-@router.delete("/{recommendation_id}", response_model=PlaceholderResponse)
-def delete_recommendation(company_id: str, recommendation_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="delete_recommendation")
-
-@router.post("/{recommendation_id}/mark-reviewed", response_model=PlaceholderResponse)
-def mark_recommendation_reviewed(company_id: str, recommendation_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="mark_recommendation_reviewed")
-
-@router.post("/{recommendation_id}/dismiss", response_model=PlaceholderResponse)
-def dismiss_recommendation(company_id: str, recommendation_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="dismiss_recommendation")
-
-@router.post("/{recommendation_id}/accept", response_model=PlaceholderResponse)
-def accept_recommendation(company_id: str, recommendation_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="accept_recommendation")
-
-@router.post("/{recommendation_id}/convert-to-replenishment", response_model=PlaceholderResponse)
-def convert_recommendation_to_replenishment(company_id: str, recommendation_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="recommendations", action="convert_recommendation_to_replenishment")
+@router.post("/{recommendation_id}/dismiss", response_model=RecommendationDTO)
+def dismiss_recommendation(
+    company_id: UUID,
+    recommendation_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: RecommendationRepository = Depends(get_recommendation_repository),
+) -> RecommendationDTO:
+    return DismissRecommendation(repo).execute(recommendation_id)
