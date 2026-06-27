@@ -1,80 +1,182 @@
-from fastapi import APIRouter
-from app.shared.presentation.schemas import PlaceholderResponse
+"""Sales module — HTTP routers wired to use cases.
+
+Sales CRUD (create/bulk/list/get/delete) and batch create/list/get are implemented.
+update_sale and batch deletion are not implemented because the domain ports do not
+expose those operations; analytics endpoints (history, summary, timeseries) belong to
+later blocks and stay as placeholders.
+"""
+from __future__ import annotations
+
+from datetime import date
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
+
+from app.modules.sales.application.dtos import SaleDTO, SalesBatchDTO
+from app.modules.sales.application.use_cases.batch import (
+    CreateSalesBatch,
+    GetSalesBatch,
+    ListSalesBatches,
+)
+from app.modules.sales.application.use_cases.sale import (
+    CreateSale,
+    CreateSalesBulk,
+    DeleteSale,
+    GetSale,
+    ListSales,
+    ListSalesByProduct,
+)
+from app.modules.sales.domain.repositories import (
+    SaleRepository,
+    SalesBatchRepository,
+)
+from app.modules.sales.presentation.dependencies import (
+    get_sale_repository,
+    get_sales_batch_repository,
+)
 from app.modules.sales.presentation.schemas import (
-    CreateSaleRequest, UpdateSaleRequest, BulkSalesRequest,
-    SaleResponse, SalesSummaryResponse, SalesTimeSeriesResponse,
-    CreateSalesBatchRequest, SalesBatchResponse
+    BulkSalesRequest,
+    CreateSaleRequest,
+    CreateSalesBatchRequest,
+)
+from app.shared.presentation.deps import (
+    AuthenticatedUser,
+    get_pagination,
+    require_company_access,
+)
+from app.shared.presentation.schemas import (
+    MessageResponse,
+    PaginationParams,
+    PlaceholderResponse,
 )
 
 router = APIRouter()
 batches_router = APIRouter()
 
-@router.get("", response_model=PlaceholderResponse)
-def list_sales(company_id: str) -> PlaceholderResponse:
-    # TODO: Call use case in application/use_cases
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales", action="list_sales")
 
-@router.post("", response_model=SaleResponse)
-def create_sale(company_id: str, request: CreateSaleRequest) -> SaleResponse:
-    return SaleResponse(message="Endpoint scaffold ready", module="sales", action="create_sale", company_id=company_id)
+# --- Sales -------------------------------------------------------------------
+@router.get("", response_model=list[SaleDTO])
+def list_sales(
+    company_id: UUID,
+    pagination: PaginationParams = Depends(get_pagination),
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SaleRepository = Depends(get_sale_repository),
+) -> list[SaleDTO]:
+    return ListSales(repo).execute(
+        company_id,
+        offset=(pagination.page - 1) * pagination.size,
+        limit=pagination.size,
+    )
 
-@router.post("/bulk", response_model=PlaceholderResponse)
-def create_sales_bulk(company_id: str, request: BulkSalesRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales", action="create_sales_bulk")
 
-@router.get("/history", response_model=PlaceholderResponse)
-def get_sales_history(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales", action="get_sales_history")
+@router.post("", response_model=SaleDTO, status_code=201)
+def create_sale(
+    company_id: UUID,
+    request: CreateSaleRequest,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SaleRepository = Depends(get_sale_repository),
+) -> SaleDTO:
+    return CreateSale(repo).execute(
+        company_id,
+        product_id=request.product_id,
+        sale_date=request.sale_date,
+        quantity=request.quantity,
+        unit_price=request.unit_price,
+        currency=request.currency,
+        batch_id=request.batch_id,
+    )
 
-@router.get("/by-product/{product_id}", response_model=PlaceholderResponse)
-def get_sales_by_product(company_id: str, product_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales", action="get_sales_by_product")
 
-@router.get("/by-period", response_model=PlaceholderResponse)
-def get_sales_by_period(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales", action="get_sales_by_period")
+@router.post("/bulk", response_model=list[SaleDTO], status_code=201)
+def create_sales_bulk(
+    company_id: UUID,
+    request: BulkSalesRequest,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SaleRepository = Depends(get_sale_repository),
+) -> list[SaleDTO]:
+    items = [item.model_dump(mode="json") for item in request.items]
+    return CreateSalesBulk(repo).execute(company_id, items=items)
 
-@router.get("/summary", response_model=SalesSummaryResponse)
-def get_sales_summary(company_id: str) -> SalesSummaryResponse:
-    return SalesSummaryResponse(message="Endpoint scaffold ready", module="sales", action="get_sales_summary")
 
-@router.get("/timeseries", response_model=SalesTimeSeriesResponse)
-def get_sales_timeseries(company_id: str) -> SalesTimeSeriesResponse:
-    return SalesTimeSeriesResponse(message="Endpoint scaffold ready", module="sales", action="get_sales_timeseries")
+@router.get("/by-product/{product_id}", response_model=list[SaleDTO])
+def get_sales_by_product(
+    company_id: UUID,
+    product_id: UUID,
+    start: date,
+    end: date,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SaleRepository = Depends(get_sale_repository),
+) -> list[SaleDTO]:
+    return ListSalesByProduct(repo).execute(product_id, start=start, end=end)
 
-@router.get("/{sale_id}", response_model=SaleResponse)
-def get_sale(company_id: str, sale_id: str) -> SaleResponse:
-    return SaleResponse(message="Endpoint scaffold ready", module="sales", action="get_sale", company_id=company_id, sale_id=sale_id)
 
-@router.patch("/{sale_id}", response_model=SaleResponse)
-def update_sale(company_id: str, sale_id: str, request: UpdateSaleRequest) -> SaleResponse:
-    return SaleResponse(message="Endpoint scaffold ready", module="sales", action="update_sale", company_id=company_id, sale_id=sale_id)
+@router.get("/summary", response_model=PlaceholderResponse)
+def get_sales_summary(company_id: UUID) -> PlaceholderResponse:
+    # TODO(kpis/dashboard): sales aggregation.
+    return PlaceholderResponse(
+        message="Endpoint scaffold ready", module="sales", action="get_sales_summary"
+    )
 
-@router.delete("/{sale_id}", response_model=PlaceholderResponse)
-def delete_sale(company_id: str, sale_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales", action="delete_sale")
 
-# Batches
-@batches_router.get("", response_model=PlaceholderResponse)
-def list_sales_batches(company_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales_batches", action="list_sales_batches")
+@router.get("/{sale_id}", response_model=SaleDTO)
+def get_sale(
+    company_id: UUID,
+    sale_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SaleRepository = Depends(get_sale_repository),
+) -> SaleDTO:
+    return GetSale(repo).execute(sale_id)
 
-@batches_router.post("", response_model=SalesBatchResponse)
-def create_sales_batch(company_id: str, request: CreateSalesBatchRequest) -> SalesBatchResponse:
-    return SalesBatchResponse(message="Endpoint scaffold ready", module="sales_batches", action="create_sales_batch")
 
-@batches_router.get("/{batch_id}", response_model=SalesBatchResponse)
-def get_sales_batch(company_id: str, batch_id: str) -> SalesBatchResponse:
-    return SalesBatchResponse(message="Endpoint scaffold ready", module="sales_batches", action="get_sales_batch")
+@router.delete("/{sale_id}", response_model=MessageResponse)
+def delete_sale(
+    company_id: UUID,
+    sale_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SaleRepository = Depends(get_sale_repository),
+) -> MessageResponse:
+    DeleteSale(repo).execute(sale_id)
+    return MessageResponse(message="Sale deleted")
 
-@batches_router.delete("/{batch_id}", response_model=PlaceholderResponse)
-def delete_sales_batch(company_id: str, batch_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales_batches", action="delete_sales_batch")
 
-@batches_router.get("/{batch_id}/records", response_model=PlaceholderResponse)
-def get_sales_batch_records(company_id: str, batch_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales_batches", action="get_sales_batch_records")
+@router.patch("/{sale_id}", response_model=PlaceholderResponse)
+def update_sale(company_id: UUID, sale_id: UUID) -> PlaceholderResponse:
+    # TODO: SaleRepository has no update operation; revise the port if needed.
+    return PlaceholderResponse(
+        message="Endpoint scaffold ready", module="sales", action="update_sale"
+    )
 
-@batches_router.get("/{batch_id}/errors", response_model=PlaceholderResponse)
-def get_sales_batch_errors(company_id: str, batch_id: str) -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="sales_batches", action="get_sales_batch_errors")
+
+# --- Sales batches -----------------------------------------------------------
+@batches_router.get("", response_model=list[SalesBatchDTO])
+def list_sales_batches(
+    company_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SalesBatchRepository = Depends(get_sales_batch_repository),
+) -> list[SalesBatchDTO]:
+    return ListSalesBatches(repo).execute(company_id)
+
+
+@batches_router.post("", response_model=SalesBatchDTO, status_code=201)
+def create_sales_batch(
+    company_id: UUID,
+    request: CreateSalesBatchRequest,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SalesBatchRepository = Depends(get_sales_batch_repository),
+) -> SalesBatchDTO:
+    return CreateSalesBatch(repo).execute(
+        company_id,
+        source_file=request.source_file,
+        period_start=request.period_start,
+        period_end=request.period_end,
+    )
+
+
+@batches_router.get("/{batch_id}", response_model=SalesBatchDTO)
+def get_sales_batch(
+    company_id: UUID,
+    batch_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    repo: SalesBatchRepository = Depends(get_sales_batch_repository),
+) -> SalesBatchDTO:
+    return GetSalesBatch(repo).execute(batch_id)

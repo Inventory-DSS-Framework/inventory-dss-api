@@ -1,27 +1,36 @@
+"""Sales module — presentation request schemas."""
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+from uuid import UUID
+
 from pydantic import BaseModel
-from app.shared.presentation.schemas import PlaceholderResponse
+
 
 class CreateSaleRequest(BaseModel):
-    pass
+    product_id: UUID
+    sale_date: date
+    quantity: int
+    unit_price: Decimal
+    currency: str = "PEN"
+    batch_id: UUID | None = None
 
-class UpdateSaleRequest(BaseModel):
-    pass
+
+class BulkSalesItem(BaseModel):
+    product_id: UUID
+    sale_date: date
+    quantity: int
+    unit_price: Decimal
+    currency: str = "PEN"
+    batch_id: UUID | None = None
+
 
 class BulkSalesRequest(BaseModel):
-    pass
+    items: list[BulkSalesItem]
 
-class SaleResponse(PlaceholderResponse):
-    company_id: str | None = None
-    sale_id: str | None = None
-
-class SalesSummaryResponse(PlaceholderResponse):
-    pass
-
-class SalesTimeSeriesResponse(PlaceholderResponse):
-    pass
 
 class CreateSalesBatchRequest(BaseModel):
-    pass
-
-class SalesBatchResponse(PlaceholderResponse):
-    pass
+    source_file: str
+    period_start: date | None = None
+    period_end: date | None = None
