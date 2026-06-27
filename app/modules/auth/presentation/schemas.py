@@ -1,16 +1,27 @@
+"""Auth module — presentation request schemas."""
+from __future__ import annotations
+
 from pydantic import BaseModel
-from app.shared.presentation.schemas import PlaceholderResponse
+
 
 class RegisterRequest(BaseModel):
     email: str
     password: str
+    full_name: str
+    company_name: str
+    tax_id: str
+    business_type: str = ""
+
 
 class LoginRequest(BaseModel):
     email: str
     password: str
 
-class TokenResponse(PlaceholderResponse):
-    pass
 
-class CurrentUserResponse(PlaceholderResponse):
-    pass
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str

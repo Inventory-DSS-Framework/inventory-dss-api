@@ -1,23 +1,35 @@
+"""Companies module — presentation request schemas.
+
+Responses reuse the application DTOs (CompanyDTO, UserDTO) as response models.
+"""
+from __future__ import annotations
+
 from pydantic import BaseModel
-from app.shared.presentation.schemas import PlaceholderResponse
+
 
 class CreateCompanyRequest(BaseModel):
     name: str
+    tax_id: str
+    email: str
+    business_type: str = ""
+    address: str = ""
+    phone: str = ""
+
 
 class UpdateCompanyRequest(BaseModel):
-    name: str
+    name: str | None = None
+    business_type: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    email: str | None = None
 
-class CompanyResponse(PlaceholderResponse):
-    company_id: str | None = None
 
-class CompanySettingsResponse(PlaceholderResponse):
-    company_id: str | None = None
-
-class UpdateCompanySettingsRequest(BaseModel):
-    pass
-
-class InviteCompanyUserRequest(BaseModel):
+class InviteUserRequest(BaseModel):
     email: str
+    full_name: str
+    role: str = "viewer"
+    temporary_password: str
 
-class UpdateCompanyUserRoleRequest(BaseModel):
+
+class UpdateUserRoleRequest(BaseModel):
     role: str
