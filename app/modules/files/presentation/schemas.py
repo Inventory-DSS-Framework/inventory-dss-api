@@ -1,7 +1,15 @@
-from app.shared.presentation.schemas import PlaceholderResponse
+"""Files module — HTTP schemas."""
+from __future__ import annotations
 
-class FileResponse(PlaceholderResponse):
+
+from app.modules.files.application.dtos import FileDTO
+
+
+class FileResponse(FileDTO):
+    """Response schema for a file's metadata."""
     pass
 
-class FileMetadataResponse(PlaceholderResponse):
+
+class FileMetadataResponse(FileDTO):
+    """Response schema for a file's metadata (alias)."""
     pass
