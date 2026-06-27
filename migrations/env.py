@@ -14,8 +14,23 @@ from app.shared.infrastructure.database import Base
 
 # IMPORTANT: as business modules add ORM models, import them here (or from a single
 # aggregator module) so they register on Base.metadata and autogenerate can see them.
-# e.g. from app.modules.companies.infrastructure.persistence import models  # noqa: F401
-
+from app.modules.companies.infrastructure.persistence import models as _companies_models  # noqa: E402, F401
+from app.modules.products.infrastructure.persistence import models as _products_models  # noqa: E402, F401
+from app.modules.sales.infrastructure.persistence import models as _sales_models  # noqa: E402, F401
+from app.modules.inventory.infrastructure.persistence import models as _inventory_models  # noqa: E402, F401
+from app.modules.kpis.infrastructure.persistence import models as _kpis_models  # noqa: E402, F401
+from app.modules.recommendations.infrastructure.persistence import models as _recommendations_models  # noqa: E402, F401
+from app.modules.ingestion.infrastructure.persistence import models as _ingestion_models  # noqa: E402, F401
+from app.modules.data_preparation.infrastructure.persistence import models as _data_prep_models  # noqa: E402, F401
+from app.modules.forecasting.infrastructure.persistence import models as _forecasting_models  # noqa: E402, F401
+from app.modules.notifications.infrastructure.persistence import models as _notifications_models  # noqa: E402, F401
+from app.modules.files.infrastructure.persistence import models as _files_models  # noqa: E402, F401
+from app.modules.reports.infrastructure.persistence import models as _reports_models  # noqa: E402, F401
+from app.modules.audit.infrastructure.persistence import models as _audit_models  # noqa: E402, F401
+from app.modules.dashboard.infrastructure.persistence import models as _dashboard_models  # noqa: E402, F401
+from app.modules.admin.infrastructure.persistence import models as _admin_models  # noqa: E402, F401
+from app.modules.billing.infrastructure.persistence import models as _billing_models  # noqa: E402, F401
+from app.modules.validation.infrastructure.persistence import models as _validation_models  # noqa: E402, F401
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
