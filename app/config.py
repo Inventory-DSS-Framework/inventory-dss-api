@@ -12,6 +12,9 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: Annotated[List[str], NoDecode] = Field(default=["http://localhost:3000"])
+    # Optional regex to allow dynamic origins (e.g. Vercel preview deploys):
+    # CORS_ORIGIN_REGEX=https://.*\.vercel\.app
+    cors_origin_regex: str = ""
 
     # Security / JWT
     jwt_secret_key: str = "change-this-in-production"

@@ -1,29 +1,35 @@
+# Inventory DSS API — standalone local container.
+# Run:  docker compose up --build
+#
+# The database lives in its own compose (inventory-dss-infra) and the FTGM engine
+# in its own compose too. This service reaches them THROUGH THE HOST via
+# host.docker.internal + their published ports — the same "each service is an
+# island reached over the network" model used in production (Render public URLs).
+#
+# Start order: db (infra) -> ftgm -> api -> web. The API runs `alembic upgrade head`
+# on boot, so Postgres must be up first.
+
 services:
-  db:
-    image: postgres:16
-    container_name: inventory_dss_db
+  api:
+    build: .
+    container_name: inventory_dss_api
+    ports:
+      - "8000:8000"
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: inventory_dss
-    ports:
-      - "5433:5432"
-    volumes:
-      - inventory_dss_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d inventory_dss"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Optional web UI to inspect the DB at http://localhost:8080
-  adminer:
-    image: adminer
-    container_name: inventory_dss_adminer
-    ports:
-      - "8080:8080"
-    depends_on:
-      - db
-
-volumes:
-  inventory_dss_pgdata:
+      # DB published by inventory-dss-infra on host port 5433.
+      DATABASE_URL: postgresql+psycopg://user:password@host.docker.internal:5433/inventory_dss
+      # FTGM engine published by its compose on host port 8010 (needs /api/v1 suffix).
+      FTGM_ENGINE_BASE_URL: http://host.docker.internal:8010/api/v1
+      FTGM_ENGINE_TIMEOUT_SECONDS: "30"
+      # Allow the local dev frontend and the deployed Vercel frontend.
+      CORS_ORIGINS: http://localhost:3000,https://inventory-dss-web-rjcw.vercel.app
+      # Also allow Vercel preview deploys (their URLs change each push).
+      CORS_ORIGIN_REGEX: https://.*\.vercel\.app
+      JWT_SECRET_KEY: dev-secret-change-me
+      # Uploaded files persist in Postgres (survives restarts).
+      STORAGE_BACKEND: db
+      APP_ENV: development
+      APP_DEBUG: "true"
+    # Lets the container resolve the host on Linux too (automatic on Docker Desktop).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
