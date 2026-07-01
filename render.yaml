@@ -1,0 +1,51 @@
+# Render Blueprint — Inventory DSS API + Postgres
+#
+# Deploys the FastAPI backend (Docker) and a free Postgres database.
+# The FTGM engine and web frontend are deployed from their own repos.
+#
+# After the first deploy, set the two `sync: false` vars in the Render dashboard:
+#   - FTGM_ENGINE_BASE_URL  -> https://<your-ftgm-service>.onrender.com/api/v1
+#   - CORS_ORIGINS          -> https://<your-web-service>.onrender.com
+#
+# Notes for the free tier:
+#   - Services sleep after ~15 min idle; first request after sleep is slow (~30-60s).
+#   - FTGM_ENGINE_TIMEOUT_SECONDS is bumped to 90 so the API tolerates the engine's cold start.
+
+databases:
+  - name: inventory-dss-db
+    plan: free
+    databaseName: inventory_dss
+    user: inventory_dss
+
+services:
+  - type: web
+    name: inventory-dss-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # Postgres URL (postgresql://...); the app normalizes it to the psycopg driver.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: inventory-dss-db
+          property: connectionString
+      # Random 256-bit secret generated once by Render and kept stable across deploys.
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      # Uploaded files live in Postgres so they survive restarts / ephemeral disks.
+      - key: STORAGE_BACKEND
+        value: db
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: FTGM_ENGINE_TIMEOUT_SECONDS
+        value: "90"
+      # Set in the dashboard after the FTGM service exists (must end in /api/v1).
+      - key: FTGM_ENGINE_BASE_URL
+        sync: false
+      # Set in the dashboard after the web service exists (comma-separated origins).
+      - key: CORS_ORIGINS
+        sync: false

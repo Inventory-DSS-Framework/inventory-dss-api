@@ -126,6 +126,11 @@ def create_app() -> FastAPI:
             content=ErrorResponse(code="INTERNAL_SERVER_ERROR", message="An unexpected error occurred.").model_dump()
         )
 
+    # Public, unauthenticated liveness endpoint (used by platform health checks).
+    @app.get("/health", tags=["System"])
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
     return app

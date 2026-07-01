@@ -8,5 +8,6 @@ COPY . .
 RUN pip install .
 
 EXPOSE 8000
-# Apply DB migrations, then start the server.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Apply DB migrations, then start the server. Bind to $PORT when the platform
+# injects one (Render/Railway), else default to 8000 for local docker-compose.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
