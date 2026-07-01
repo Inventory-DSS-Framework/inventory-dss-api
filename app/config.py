@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     database_url: str = "postgresql+psycopg://user:password@localhost:5432/inventory_dss"
-    
+
     # CORS
     cors_origins: Annotated[List[str], NoDecode] = Field(default=["http://localhost:3000"])
 
@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     ftgm_seasonal_period: int = 12
 
     # Storage
+    # Backend for uploaded files: "db" keeps bytes in Postgres (survives restarts /
+    # ephemeral disks on Render/Railway free tiers); "local" writes to storage_root.
+    storage_backend: str = "db"
     storage_root: str = "./storage"
     max_upload_size_mb: int = 10
     allowed_upload_mime_types: Annotated[List[str], NoDecode] = Field(default=["text/csv", "application/vnd.ms-excel"])
@@ -44,6 +47,24 @@ class Settings(BaseSettings):
         """Parse comma-separated env vars (e.g. CORS_ORIGINS=http://a,http://b) into a list."""
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, value: Any) -> Any:
+        """Coerce managed-Postgres URLs to the psycopg (v3) driver.
+
+        Render/Neon/Railway hand out ``postgres://`` or ``postgresql://`` URLs, but
+        SQLAlchemy needs an explicit ``postgresql+psycopg://`` driver. Leave URLs that
+        already specify a driver (``postgresql+...``) untouched.
+        """
+        if isinstance(value, str):
+            if value.startswith("postgresql+"):
+                return value
+            if value.startswith("postgresql://"):
+                return "postgresql+psycopg://" + value[len("postgresql://"):]
+            if value.startswith("postgres://"):
+                return "postgresql+psycopg://" + value[len("postgres://"):]
         return value
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

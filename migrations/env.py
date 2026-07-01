@@ -31,6 +31,7 @@ from app.modules.dashboard.infrastructure.persistence import models as _dashboar
 from app.modules.admin.infrastructure.persistence import models as _admin_models  # noqa: E402, F401
 from app.modules.billing.infrastructure.persistence import models as _billing_models  # noqa: E402, F401
 from app.modules.validation.infrastructure.persistence import models as _validation_models  # noqa: E402, F401
+from app.shared.infrastructure.storage import models as _storage_models  # noqa: E402, F401
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config

@@ -8,7 +8,8 @@ from app.modules.ingestion.infrastructure.persistence.repositories import (
     SqlIngestionBatchRepository,
 )
 from app.shared.infrastructure.database import get_db
-from app.shared.infrastructure.storage.local import LocalFileStorage
+from app.shared.infrastructure.ports import StoragePort
+from app.shared.infrastructure.storage.factory import make_storage
 
 
 def get_ingestion_repository(
@@ -17,5 +18,5 @@ def get_ingestion_repository(
     return SqlIngestionBatchRepository(db)
 
 
-def get_storage() -> LocalFileStorage:
-    return LocalFileStorage()
+def get_storage(db: Session = Depends(get_db)) -> StoragePort:
+    return make_storage(db)

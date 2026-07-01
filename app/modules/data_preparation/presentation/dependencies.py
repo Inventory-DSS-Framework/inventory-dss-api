@@ -14,7 +14,8 @@ from app.modules.products.infrastructure.persistence.repositories import (
     SqlProductRepository,
 )
 from app.shared.infrastructure.database import get_db
-from app.shared.infrastructure.storage.local import LocalFileStorage
+from app.shared.infrastructure.ports import StoragePort
+from app.shared.infrastructure.storage.factory import make_storage
 
 
 def get_dataset_repository(
@@ -33,5 +34,5 @@ def get_product_repository(db: Session = Depends(get_db)) -> SqlProductRepositor
     return SqlProductRepository(db)
 
 
-def get_storage() -> LocalFileStorage:
-    return LocalFileStorage()
+def get_storage(db: Session = Depends(get_db)) -> StoragePort:
+    return make_storage(db)

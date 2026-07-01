@@ -39,7 +39,7 @@ from app.modules.ingestion.infrastructure.persistence.repositories import (
 from app.modules.products.infrastructure.persistence.repositories import (
     SqlProductRepository,
 )
-from app.shared.infrastructure.storage.local import LocalFileStorage
+from app.shared.infrastructure.ports import StoragePort
 from app.shared.presentation.deps import AuthenticatedUser, require_company_access
 from app.shared.presentation.schemas import MessageResponse
 
@@ -80,7 +80,7 @@ def prepare_from_batch(
     datasets: PreparedDatasetRepository = Depends(get_dataset_repository),
     batches: SqlIngestionBatchRepository = Depends(get_ingestion_repository),
     products: SqlProductRepository = Depends(get_product_repository),
-    storage: LocalFileStorage = Depends(get_storage),
+    storage: StoragePort = Depends(get_storage),
 ) -> PreparedDatasetDTO:
     return PrepareDatasetFromBatch(
         batches=batches,

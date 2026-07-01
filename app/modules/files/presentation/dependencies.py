@@ -6,13 +6,12 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.modules.files.domain.repositories import StoredFileRepository
 from app.modules.files.infrastructure.persistence.repositories import (
     SqlStoredFileRepository,
 )
 from app.shared.infrastructure.ports import StoragePort
-from app.shared.infrastructure.storage.local import LocalFileStorage
+from app.shared.infrastructure.storage.factory import make_storage
 from app.shared.presentation.deps import get_db
 
 
@@ -23,6 +22,8 @@ def get_stored_file_repository(
     return SqlStoredFileRepository(db)
 
 
-def get_storage_port() -> StoragePort:
+def get_storage_port(
+    db: Annotated[Session, Depends(get_db)],
+) -> StoragePort:
     """Dependency provider for StoragePort."""
-    return LocalFileStorage(settings.storage_root)
+    return make_storage(db)
