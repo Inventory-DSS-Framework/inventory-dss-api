@@ -10,9 +10,23 @@ from app.modules.inventory.domain.enums import MovementType
 from app.modules.inventory.domain.exceptions import InventoryMovementNotFoundError
 from app.modules.inventory.domain.repositories import InventoryMovementRepository
 from app.modules.inventory.domain.services import compute_stock_on_hand
+from app.modules.products.domain.repositories import ProductRepository
 from app.shared.domain.value_objects import Quantity
 
 _PAGE = 200
+
+
+def _stock_on_hand(movements: InventoryMovementRepository, product_id: UUID) -> int:
+    """Sum the full movement ledger for one product into a current on-hand quantity."""
+    collected: list[InventoryMovement] = []
+    offset = 0
+    while True:
+        page = movements.list_by_product(product_id, offset, _PAGE)
+        collected.extend(page)
+        if len(page) < _PAGE:
+            break
+        offset += _PAGE
+    return compute_stock_on_hand(collected)
 
 
 class CreateMovement:
@@ -73,15 +87,30 @@ class GetCurrentStock:
         self._movements = movements
 
     def execute(self, product_id: UUID) -> StockLevelDTO:
-        all_movements: list[InventoryMovement] = []
-        offset = 0
-        while True:
-            page = self._movements.list_by_product(product_id, offset, _PAGE)
-            all_movements.extend(page)
-            if len(page) < _PAGE:
-                break
-            offset += _PAGE
         return StockLevelDTO(
             product_id=product_id,
-            quantity_on_hand=compute_stock_on_hand(all_movements),
+            quantity_on_hand=_stock_on_hand(self._movements, product_id),
         )
+
+
+class GetCompanyStockLevels:
+    """Current on-hand stock for every active product of a company."""
+
+    def __init__(
+        self,
+        *,
+        products: ProductRepository,
+        movements: InventoryMovementRepository,
+    ) -> None:
+        self._products = products
+        self._movements = movements
+
+    def execute(self, company_id: UUID) -> list[StockLevelDTO]:
+        return [
+            StockLevelDTO(
+                product_id=product.id,
+                quantity_on_hand=_stock_on_hand(self._movements, product.id),
+            )
+            for product in self._products.list_active(company_id)
+            if product.id is not None
+        ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.domain.entities import (
@@ -72,6 +72,23 @@ class SqlInventoryMovementRepository:
         self._session.add(model)
         self._session.flush()
         return movement_to_entity(model)
+
+    def add_bulk(self, movements: list[InventoryMovement]) -> list[InventoryMovement]:
+        models = [movement_to_model(m) for m in movements]
+        self._session.add_all(models)
+        self._session.flush()
+        return [movement_to_entity(m) for m in models]
+
+    def delete_by_reason(self, company_id: UUID, reason: str) -> int:
+        """Remove movements tagged with a specific reason (idempotent auto-seeding)."""
+        result = self._session.execute(
+            delete(InventoryMovementModel).where(
+                InventoryMovementModel.company_id == company_id,
+                InventoryMovementModel.reason == reason,
+            )
+        )
+        self._session.flush()
+        return int(result.rowcount or 0)
 
 
 class SqlStockSnapshotRepository:

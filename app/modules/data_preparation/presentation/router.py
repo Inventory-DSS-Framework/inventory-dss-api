@@ -39,6 +39,10 @@ from app.modules.ingestion.infrastructure.persistence.repositories import (
 from app.modules.products.infrastructure.persistence.repositories import (
     SqlProductRepository,
 )
+from app.modules.inventory.infrastructure.persistence.repositories import (
+    SqlInventoryMovementRepository,
+)
+from app.modules.inventory.presentation.dependencies import get_movement_repository
 from app.modules.sales.infrastructure.persistence.repositories import (
     SqlSaleRepository,
 )
@@ -86,6 +90,7 @@ def prepare_from_batch(
     products: SqlProductRepository = Depends(get_product_repository),
     storage: StoragePort = Depends(get_storage),
     sales: SqlSaleRepository = Depends(get_sale_repository),
+    movements: SqlInventoryMovementRepository = Depends(get_movement_repository),
 ) -> PreparedDatasetDTO:
     return PrepareDatasetFromBatch(
         batches=batches,
@@ -93,6 +98,7 @@ def prepare_from_batch(
         datasets=datasets,
         storage=storage,
         sales=sales,
+        movements=movements,
     ).execute(
         company_id,
         batch_id=request.batch_id,

@@ -20,6 +20,7 @@ from app.modules.inventory.application.dtos import (
 )
 from app.modules.inventory.application.use_cases.movement import (
     CreateMovement,
+    GetCompanyStockLevels,
     GetCurrentStock,
     GetMovement,
     ListMovements,
@@ -84,12 +85,15 @@ def get_current_stock_by_product(
     return GetCurrentStock(repo).execute(product_id)
 
 
-@router.get("/current-stock", response_model=PlaceholderResponse)
-def get_current_stock(company_id: UUID) -> PlaceholderResponse:
-    # TODO: company-wide stock needs the product catalogue (cross-module).
-    return PlaceholderResponse(
-        message="Endpoint scaffold ready", module="inventory", action="get_current_stock"
-    )
+@router.get("/current-stock", response_model=list[StockLevelDTO])
+def get_company_stock_levels(
+    company_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    movements: InventoryMovementRepository = Depends(get_movement_repository),
+    products: ProductRepository = Depends(get_product_repository),
+) -> list[StockLevelDTO]:
+    """Current on-hand stock for every active product (derived from the ledger)."""
+    return GetCompanyStockLevels(products=products, movements=movements).execute(company_id)
 
 
 # --- Movements ---------------------------------------------------------------

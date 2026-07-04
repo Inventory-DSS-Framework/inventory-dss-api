@@ -9,8 +9,10 @@ Applies the pure KPI formulas and persists one Kpi per (product, KpiType).
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID
 
+from app.config import settings
 from app.modules.forecasting.domain.enums import RunStatus
 from app.modules.forecasting.domain.repositories import (
     ForecastResultRepository,
@@ -26,6 +28,26 @@ from app.modules.products.domain.repositories import ProductRepository
 from app.shared.domain.errors import ValidationError
 
 _MOVE_PAGE = 200
+# Approximate calendar days per seasonal period, to turn per-period (monthly) forecast
+# points into the daily-demand series the day-based reorder/KPI policies expect.
+_DAYS_PER_PERIOD = {12: 30.44, 4: 91.31, 52: 7.0, 1: 1.0}
+
+
+def _to_daily_demand(points: list) -> list[Decimal]:
+    """Expand per-period forecast points into a flat daily-demand series.
+
+    The FTGM engine forecasts one value per seasonal period (monthly by default), but
+    the reorder/KPI formulas reason in days. Spread each period's demand evenly across
+    its days so ``daily_demand[:lead_time_days]`` is the demand over the lead time.
+    """
+    period_days = _DAYS_PER_PERIOD.get(settings.ftgm_seasonal_period, 30.44)
+    span = max(1, round(period_days))
+    divisor = Decimal(str(period_days))
+    daily: list[Decimal] = []
+    for p in points:
+        rate = p.predicted_demand / divisor
+        daily.extend([rate] * span)
+    return daily
 
 
 class ComputeCompanyKpis:
@@ -76,7 +98,7 @@ class ComputeCompanyKpis:
                 continue
             inputs = ProductKpiInputs(
                 current_stock=self._current_stock(product.id),
-                daily_demand=[p.predicted_demand for p in result.points],
+                daily_demand=_to_daily_demand(result.points),
                 lead_time_days=product.lead_time_days,
                 safety_stock=product.safety_stock,
             )
