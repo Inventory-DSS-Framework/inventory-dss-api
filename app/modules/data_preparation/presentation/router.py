@@ -39,6 +39,10 @@ from app.modules.ingestion.infrastructure.persistence.repositories import (
 from app.modules.products.infrastructure.persistence.repositories import (
     SqlProductRepository,
 )
+from app.modules.sales.infrastructure.persistence.repositories import (
+    SqlSaleRepository,
+)
+from app.modules.sales.presentation.dependencies import get_sale_repository
 from app.shared.infrastructure.ports import StoragePort
 from app.shared.presentation.deps import AuthenticatedUser, require_company_access
 from app.shared.presentation.schemas import MessageResponse
@@ -81,12 +85,14 @@ def prepare_from_batch(
     batches: SqlIngestionBatchRepository = Depends(get_ingestion_repository),
     products: SqlProductRepository = Depends(get_product_repository),
     storage: StoragePort = Depends(get_storage),
+    sales: SqlSaleRepository = Depends(get_sale_repository),
 ) -> PreparedDatasetDTO:
     return PrepareDatasetFromBatch(
         batches=batches,
         products=products,
         datasets=datasets,
         storage=storage,
+        sales=sales,
     ).execute(
         company_id,
         batch_id=request.batch_id,

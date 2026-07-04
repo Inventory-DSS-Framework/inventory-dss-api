@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.modules.sales.domain.entities import Sale, SalesBatch
@@ -74,6 +74,17 @@ class SqlSaleRepository:
         self._session.delete(model)
         self._session.flush()
         return True
+
+    def delete_by_batch(self, company_id: UUID, batch_id: UUID) -> int:
+        """Remove all sales linked to an ingestion batch (idempotent re-prepare)."""
+        result = self._session.execute(
+            delete(SaleModel).where(
+                SaleModel.company_id == company_id,
+                SaleModel.batch_id == batch_id,
+            )
+        )
+        self._session.flush()
+        return int(result.rowcount or 0)
 
 
 class SqlSalesBatchRepository:

@@ -20,7 +20,9 @@ from app.modules.data_preparation.infrastructure.file_parser import parse_demand
 from app.modules.ingestion.domain.exceptions import IngestionBatchNotFoundError
 from app.modules.ingestion.domain.repositories import IngestionBatchRepository
 from app.modules.products.domain.repositories import ProductRepository
-from app.shared.domain.value_objects import DateRange
+from app.modules.sales.domain.entities import Sale
+from app.modules.sales.domain.repositories import SaleRepository
+from app.shared.domain.value_objects import DateRange, Money, Quantity
 from app.shared.infrastructure.ports import StoragePort
 
 
@@ -32,11 +34,13 @@ class PrepareDatasetFromBatch:
         products: ProductRepository,
         datasets: PreparedDatasetRepository,
         storage: StoragePort,
+        sales: SaleRepository,
     ) -> None:
         self._batches = batches
         self._products = products
         self._datasets = datasets
         self._storage = storage
+        self._sales = sales
 
     def execute(
         self,
@@ -58,8 +62,11 @@ class PrepareDatasetFromBatch:
             column_mapping=batch.column_mapping,
         )
 
-        # Resolve SKUs to product ids; unknown SKUs are skipped.
+        # Resolve SKUs to product ids; unknown SKUs are skipped. In the same pass we
+        # materialize individual sale transactions (priced from the product catalog) so
+        # the Sales view reflects exactly what was uploaded — the raw rows carry no price.
         records: list[DemandRecord] = []
+        sales_to_add: list[Sale] = []
         for row in raw_rows:
             product = self._products.get_by_sku(company_id, row.sku)
             if product is None or product.id is None:
@@ -72,11 +79,31 @@ class PrepareDatasetFromBatch:
                     is_stockout=row.is_stockout,
                 )
             )
+            qty = int(row.quantity)
+            if qty > 0:
+                price = Money(product.unit_price.amount, product.unit_price.currency)
+                sales_to_add.append(
+                    Sale(
+                        company_id=company_id,
+                        product_id=product.id,
+                        sale_date=row.period_date,
+                        quantity=Quantity(qty),
+                        unit_price=price,
+                        total_amount=price * qty,
+                        batch_id=batch_id,
+                    )
+                )
 
         if not records:
             raise InvalidDatasetError(
                 message="No rows could be prepared (no matching SKUs or empty file)."
             )
+
+        # Replace any sales previously materialized from this batch (idempotent
+        # re-prepare), then persist the fresh set.
+        self._sales.delete_by_batch(company_id, batch_id)
+        if sales_to_add:
+            self._sales.add_bulk(sales_to_add)
 
         prepared = prepare_demand_series(
             records, treat_zero_as_stockout=treat_zero_as_stockout
