@@ -11,7 +11,7 @@ from app.modules.forecasting.domain.entities import (
     ForecastRun,
 )
 from app.modules.forecasting.domain.enums import RunStatus
-from app.modules.forecasting.domain.value_objects import ForecastPoint
+from app.modules.forecasting.domain.value_objects import ForecastPoint, HistoryPoint
 from app.modules.forecasting.infrastructure.persistence.models import (
     ForecastMetricsModel,
     ForecastResultModel,
@@ -73,6 +73,28 @@ def _point_from_dict(data: dict[str, Any]) -> ForecastPoint:
     )
 
 
+def _history_to_dict(h: HistoryPoint) -> dict[str, Any]:
+    return {
+        "period_date": h.period_date.isoformat(),
+        "observed": str(h.observed),
+        "cleaned": str(h.cleaned),
+        "fitted": str(h.fitted) if h.fitted is not None else None,
+        "is_stockout": h.is_stockout,
+    }
+
+
+def _history_from_dict(data: dict[str, Any]) -> HistoryPoint:
+    return HistoryPoint(
+        period_date=date.fromisoformat(str(data["period_date"])),
+        observed=Decimal(str(data["observed"])),
+        cleaned=Decimal(str(data["cleaned"])),
+        fitted=(
+            Decimal(str(data["fitted"])) if data.get("fitted") is not None else None
+        ),
+        is_stockout=bool(data.get("is_stockout", False)),
+    )
+
+
 def result_to_entity(model: ForecastResultModel) -> ForecastResult:
     return ForecastResult(
         id=model.id,
@@ -80,6 +102,7 @@ def result_to_entity(model: ForecastResultModel) -> ForecastResult:
         company_id=model.company_id,
         product_id=model.product_id,
         points=[_point_from_dict(p) for p in model.points],
+        history=[_history_from_dict(h) for h in (model.history or [])],
     )
 
 
@@ -90,6 +113,7 @@ def result_to_model(entity: ForecastResult) -> ForecastResultModel:
         company_id=entity.company_id,
         product_id=entity.product_id,
         points=[_point_to_dict(p) for p in entity.points],
+        history=[_history_to_dict(h) for h in entity.history],
     )
 
 
@@ -100,6 +124,13 @@ def metrics_to_entity(model: ForecastMetricsModel) -> ForecastMetrics:
         mape=model.mape,
         mae=model.mae,
         rmse=model.rmse,
+        mase=model.mase,
+        rmsse=model.rmsse,
+        order_selected=model.order_selected,
+        model_used=model.model_used,
+        status=model.status,
+        fallback_reason=model.fallback_reason,
+        validation_rmse=model.validation_rmse,
     )
 
 
@@ -110,4 +141,11 @@ def metrics_to_model(entity: ForecastMetrics) -> ForecastMetricsModel:
         mape=entity.mape,
         mae=entity.mae,
         rmse=entity.rmse,
+        mase=entity.mase,
+        rmsse=entity.rmsse,
+        order_selected=entity.order_selected,
+        model_used=entity.model_used,
+        status=entity.status,
+        fallback_reason=entity.fallback_reason,
+        validation_rmse=entity.validation_rmse,
     )

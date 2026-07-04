@@ -66,6 +66,7 @@ class ExecuteForecastRun:
                         company_id=run.company_id,
                         product_id=f.product_id,
                         points=f.points,
+                        history=f.history,
                     )
                     for f in forecasts
                 ]
@@ -78,6 +79,13 @@ class ExecuteForecastRun:
                         mape=f.mape,
                         mae=f.mae,
                         rmse=f.rmse,
+                        mase=f.mase,
+                        rmsse=f.rmsse,
+                        order_selected=f.order_selected,
+                        model_used=f.model_used,
+                        status=f.status,
+                        fallback_reason=f.fallback_reason,
+                        validation_rmse=f.validation_rmse,
                     )
                     for f in forecasts
                 ]

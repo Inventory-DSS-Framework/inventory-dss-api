@@ -48,12 +48,21 @@ class ForecastPointDTO(BaseModel):
     upper_bound: Decimal | None
 
 
+class HistoryPointDTO(BaseModel):
+    period_date: date
+    observed: Decimal
+    cleaned: Decimal
+    fitted: Decimal | None
+    is_stockout: bool
+
+
 class ForecastResultDTO(BaseModel):
     id: UUID
     run_id: UUID
     company_id: UUID
     product_id: UUID
     points: list[ForecastPointDTO]
+    history: list[HistoryPointDTO] = []
 
     @classmethod
     def from_entity(cls, result: ForecastResult) -> ForecastResultDTO:
@@ -72,6 +81,16 @@ class ForecastResultDTO(BaseModel):
                 )
                 for p in result.points
             ],
+            history=[
+                HistoryPointDTO(
+                    period_date=h.period_date,
+                    observed=h.observed,
+                    cleaned=h.cleaned,
+                    fitted=h.fitted,
+                    is_stockout=h.is_stockout,
+                )
+                for h in result.history
+            ],
         )
 
 
@@ -81,6 +100,13 @@ class ForecastMetricsDTO(BaseModel):
     mape: Decimal
     mae: Decimal
     rmse: Decimal
+    mase: Decimal | None = None
+    rmsse: Decimal | None = None
+    order_selected: int = 0
+    model_used: str = ""
+    status: str = "ok"
+    fallback_reason: str | None = None
+    validation_rmse: Decimal | None = None
 
     @classmethod
     def from_entity(cls, metrics: ForecastMetrics) -> ForecastMetricsDTO:
@@ -90,4 +116,11 @@ class ForecastMetricsDTO(BaseModel):
             mape=metrics.mape,
             mae=metrics.mae,
             rmse=metrics.rmse,
+            mase=metrics.mase,
+            rmsse=metrics.rmsse,
+            order_selected=metrics.order_selected,
+            model_used=metrics.model_used,
+            status=metrics.status,
+            fallback_reason=metrics.fallback_reason,
+            validation_rmse=metrics.validation_rmse,
         )

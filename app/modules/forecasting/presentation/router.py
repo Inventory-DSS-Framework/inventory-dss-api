@@ -28,8 +28,12 @@ from app.modules.forecasting.domain.repositories import (
     ForecastResultRepository,
     ForecastRunRepository,
 )
+from app.modules.data_preparation.domain.repositories import (
+    PreparedDatasetRepository,
+)
 from app.modules.forecasting.infrastructure.background import run_forecast_job
 from app.modules.forecasting.presentation.dependencies import (
+    get_dataset_repository,
     get_metrics_repository,
     get_result_repository,
     get_run_repository,
@@ -52,8 +56,9 @@ def create_run(
     request: CreateForecastRunRequest,
     _: AuthenticatedUser = Depends(require_company_access),
     repo: ForecastRunRepository = Depends(get_run_repository),
+    datasets: PreparedDatasetRepository = Depends(get_dataset_repository),
 ) -> ForecastRunDTO:
-    return CreateForecastRun(repo).execute(
+    return CreateForecastRun(repo, datasets).execute(
         company_id,
         model_name=request.model_name,
         horizon_days=request.horizon_days,

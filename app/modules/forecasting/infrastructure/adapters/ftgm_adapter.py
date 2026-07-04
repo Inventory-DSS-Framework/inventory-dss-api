@@ -18,7 +18,7 @@ import httpx
 from app.config import settings
 from app.modules.data_preparation.domain.entities import PreparedTimeSeries
 from app.modules.forecasting.application.ports import ProductForecast
-from app.modules.forecasting.domain.value_objects import ForecastPoint
+from app.modules.forecasting.domain.value_objects import ForecastPoint, HistoryPoint
 
 # Approximate calendar length of one seasonal period, used to convert a horizon
 # expressed in days into the number of periods the engine forecasts.
@@ -88,8 +88,19 @@ class FtgmHttpAdapter:
         return Decimal(str(value)) if value is not None else Decimal("0")
 
     @staticmethod
+    def _optional_metric(metrics: dict[str, Any], key: str) -> Decimal | None:
+        """Read a metric that may legitimately be absent (e.g. undefined MASE)."""
+        value = metrics.get(key)
+        return Decimal(str(value)) if value is not None else None
+
+    @staticmethod
+    def _optional_decimal(value: Any) -> Decimal | None:
+        return Decimal(str(value)) if value is not None else None
+
+    @staticmethod
     def _parse(item: dict[str, Any]) -> ProductForecast:
         metrics = item.get("metrics", {})
+        diagnostics = item.get("diagnostics") or {}
         return ProductForecast(
             product_id=UUID(str(item["product_id"])),
             points=[
@@ -109,7 +120,26 @@ class FtgmHttpAdapter:
                 )
                 for p in item.get("points", [])
             ],
+            history=[
+                HistoryPoint(
+                    period_date=date.fromisoformat(str(h["date"])),
+                    observed=Decimal(str(h["observed"])),
+                    cleaned=Decimal(str(h["cleaned"])),
+                    fitted=FtgmHttpAdapter._optional_decimal(h.get("fitted")),
+                    is_stockout=bool(h.get("is_stockout", False)),
+                )
+                for h in item.get("history", [])
+            ],
             mape=FtgmHttpAdapter._metric(metrics, "mape"),
             mae=FtgmHttpAdapter._metric(metrics, "mae"),
             rmse=FtgmHttpAdapter._metric(metrics, "rmse"),
+            mase=FtgmHttpAdapter._optional_metric(metrics, "mase"),
+            rmsse=FtgmHttpAdapter._optional_metric(metrics, "rmsse"),
+            order_selected=int(item.get("order_selected", 0)),
+            model_used=str(item.get("model", "")),
+            status=str(item.get("status", "ok")),
+            fallback_reason=item.get("fallback_reason"),
+            validation_rmse=FtgmHttpAdapter._optional_decimal(
+                diagnostics.get("validation_rmse")
+            ),
         )

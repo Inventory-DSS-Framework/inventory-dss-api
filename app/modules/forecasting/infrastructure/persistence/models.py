@@ -32,6 +32,8 @@ class ForecastResultModel(Base, UUIDMixin, TimestampMixin):
     company_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
     product_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
     points: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
+    # In-sample history buckets (observed/cleaned/fitted) — nullable for legacy rows.
+    history: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=list, nullable=True)
 
 
 class ForecastMetricsModel(Base, UUIDMixin, TimestampMixin):
@@ -42,3 +44,10 @@ class ForecastMetricsModel(Base, UUIDMixin, TimestampMixin):
     mape: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
     mae: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     rmse: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
+    mase: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    rmsse: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    order_selected: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    model_used: Mapped[str] = mapped_column(String(50), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="ok", nullable=False)
+    fallback_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    validation_rmse: Mapped[Decimal | None] = mapped_column(Numeric(14, 4), nullable=True)

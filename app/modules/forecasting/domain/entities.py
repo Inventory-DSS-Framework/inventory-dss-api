@@ -22,7 +22,7 @@ from uuid import UUID
 
 from app.modules.forecasting.domain.enums import RunStatus
 from app.modules.forecasting.domain.exceptions import InvalidRunTransitionError
-from app.modules.forecasting.domain.value_objects import ForecastPoint
+from app.modules.forecasting.domain.value_objects import ForecastPoint, HistoryPoint
 
 
 # Valid state transitions for ForecastRun
@@ -90,15 +90,30 @@ class ForecastResult:
     company_id: UUID
     product_id: UUID
     points: list[ForecastPoint] = field(default_factory=list)
+    # In-sample history (observed/cleaned/fitted per bucket) as returned by the engine.
+    history: list[HistoryPoint] = field(default_factory=list)
     id: UUID | None = None
 
 
 @dataclass
 class ForecastMetrics:
-    """Accuracy metrics for a forecast run on a specific product."""
+    """Accuracy metrics + model provenance for a forecast run on a specific product.
+
+    ``model_used`` records which model actually produced the forecast ("FTGM" or the
+    "SeasonalNaive" fallback) and ``order_selected`` the Fourier order chosen by
+    Algorithm 1 (0 = baseline). ``status`` mirrors the engine's per-product outcome
+    (ok / fallback / skipped) with ``fallback_reason`` explaining why.
+    """
 
     run_id: UUID
     product_id: UUID
     mape: Decimal
     mae: Decimal
     rmse: Decimal
+    mase: Decimal | None = None
+    rmsse: Decimal | None = None
+    order_selected: int = 0
+    model_used: str = ""
+    status: str = "ok"
+    fallback_reason: str | None = None
+    validation_rmse: Decimal | None = None
