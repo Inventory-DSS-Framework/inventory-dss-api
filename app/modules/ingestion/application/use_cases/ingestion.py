@@ -16,6 +16,9 @@ from app.modules.ingestion.domain.exceptions import (
     InvalidIngestionError,
 )
 from app.modules.ingestion.domain.repositories import IngestionBatchRepository
+from app.modules.files.domain.entities import StoredFile
+from app.modules.files.domain.enums import FileCategory
+from app.modules.files.domain.repositories import StoredFileRepository
 from app.shared.infrastructure.ports import StoragePort
 
 
@@ -32,10 +35,14 @@ def _infer_file_type(file_name: str) -> FileType:
 
 class UploadDataset:
     def __init__(
-        self, batches: IngestionBatchRepository, storage: StoragePort
+        self,
+        batches: IngestionBatchRepository,
+        storage: StoragePort,
+        files: StoredFileRepository | None = None,
     ) -> None:
         self._batches = batches
         self._storage = storage
+        self._files = files
 
     def execute(
         self,
@@ -53,7 +60,22 @@ class UploadDataset:
             file_path=stored_path,
             file_type=file_type,
         )
-        return IngestionBatchDTO.from_entity(self._batches.add(batch))
+        result = IngestionBatchDTO.from_entity(self._batches.add(batch))
+
+        # Also register the upload in the Files catalog so it shows under "Archivos"
+        # (both point at the same stored blob — no duplicate storage).
+        if self._files is not None:
+            self._files.add(
+                StoredFile(
+                    company_id=company_id,
+                    file_name=file_name,
+                    file_path=stored_path,
+                    content_type=content_type or "text/csv",
+                    size_bytes=len(content),
+                    category=FileCategory.ORIGINAL,
+                )
+            )
+        return result
 
 
 class ListUploads:

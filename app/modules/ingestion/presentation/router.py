@@ -24,6 +24,8 @@ from app.modules.ingestion.presentation.dependencies import (
     get_storage,
 )
 from app.modules.ingestion.presentation.schemas import ColumnMappingRequest
+from app.modules.files.domain.repositories import StoredFileRepository
+from app.modules.files.presentation.dependencies import get_stored_file_repository
 from app.shared.infrastructure.ports import StoragePort
 from app.shared.presentation.deps import AuthenticatedUser, require_company_access
 from app.shared.presentation.schemas import PlaceholderResponse
@@ -38,9 +40,10 @@ async def create_upload(
     _: AuthenticatedUser = Depends(require_company_access),
     repo: IngestionBatchRepository = Depends(get_ingestion_repository),
     storage: StoragePort = Depends(get_storage),
+    files: StoredFileRepository = Depends(get_stored_file_repository),
 ) -> IngestionBatchDTO:
     content = await file.read()
-    return UploadDataset(repo, storage).execute(
+    return UploadDataset(repo, storage, files).execute(
         company_id,
         file_name=file.filename or "upload",
         content=content,

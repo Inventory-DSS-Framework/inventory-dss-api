@@ -8,6 +8,26 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import Response
 
 from app.modules.files.presentation.dependencies import get_storage_port
+from app.modules.forecasting.infrastructure.persistence.repositories import (
+    SqlForecastMetricsRepository,
+    SqlForecastRunRepository,
+)
+from app.modules.forecasting.presentation.dependencies import (
+    get_metrics_repository,
+    get_run_repository,
+)
+from app.modules.kpis.infrastructure.persistence.repositories import SqlKpiRepository
+from app.modules.kpis.presentation.dependencies import get_kpi_repository
+from app.modules.products.infrastructure.persistence.repositories import (
+    SqlProductRepository,
+)
+from app.modules.products.presentation.dependencies import get_product_repository
+from app.modules.recommendations.infrastructure.persistence.repositories import (
+    SqlRecommendationRepository,
+)
+from app.modules.recommendations.presentation.dependencies import (
+    get_recommendation_repository,
+)
 from app.modules.reports.application.use_cases.report import (
     CreateReport,
     DownloadReport,
@@ -74,6 +94,13 @@ def create_report(
     request: CreateReportRequest,
     repo: Annotated[ReportRepository, Depends(get_report_repository)],
     storage: Annotated[StoragePort, Depends(get_storage_port)],
+    runs: Annotated[SqlForecastRunRepository, Depends(get_run_repository)],
+    metrics: Annotated[SqlForecastMetricsRepository, Depends(get_metrics_repository)],
+    kpis: Annotated[SqlKpiRepository, Depends(get_kpi_repository)],
+    recommendations: Annotated[
+        SqlRecommendationRepository, Depends(get_recommendation_repository)
+    ],
+    products: Annotated[SqlProductRepository, Depends(get_product_repository)],
     user: Annotated[AuthenticatedUser, Depends(require_company_access)],
 ) -> ReportResponse:
     # 1. Create it in pending state
@@ -84,11 +111,19 @@ def create_report(
         report_type=request.report_type,
         params=request.params,
     )
-    
-    # 2. Synchronously generate it for the scaffold MVP
-    generate_use_case = GenerateReport(repo, storage)
+
+    # 2. Synchronously generate it with real DSS content.
+    generate_use_case = GenerateReport(
+        repo,
+        storage,
+        runs=runs,
+        metrics=metrics,
+        kpis=kpis,
+        recommendations=recommendations,
+        products=products,
+    )
     ready_dto = generate_use_case.execute(company_id=company_id, report_id=dto.id)
-    
+
     return ReportResponse.model_validate(ready_dto)
 
 
