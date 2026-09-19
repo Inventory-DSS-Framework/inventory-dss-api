@@ -8,10 +8,13 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.modules.companies.domain.repositories import UserRepository
 from app.modules.sales.application.dtos import (
@@ -76,7 +79,9 @@ from app.modules.sales.presentation.schemas import (
     RecordLostSaleRequest,
     VoidSalesOrderRequest,
 )
+from app.modules.sales.infrastructure.persistence.history_import import import_sales_history
 from app.shared.domain.errors import ForbiddenError
+from app.shared.infrastructure.database import get_db
 from app.shared.presentation.deps import (
     AuthenticatedUser,
     get_pagination,
@@ -152,6 +157,57 @@ def create_sales_bulk(
 ) -> list[SaleDTO]:
     items = [item.model_dump(mode="json") for item in request.items]
     return CreateSalesBulk(repo).execute(company_id, items=items)
+
+
+class SalesImportRow(BaseModel):
+    row: int | None = None
+    code: str | None = None
+    barcode: str | None = None
+    name: str | None = None
+    sale_date: str
+    quantity: Decimal
+    unit_price: Decimal | None = None
+    seller_name: str | None = None
+
+
+class SalesImportRequest(BaseModel):
+    rows: list[SalesImportRow] = Field(min_length=1, max_length=20000)
+    allow_duplicates: bool = False
+
+
+class SalesImportError(BaseModel):
+    row: int
+    message: str
+
+
+class SalesImportResult(BaseModel):
+    batch_id: UUID | None
+    created: int
+    units: int
+    revenue: Decimal
+    period_start: date | None
+    period_end: date | None
+    products: int
+    errors: list[SalesImportError]
+
+
+@router.post("/import", response_model=SalesImportResult, status_code=201)
+def import_sales(
+    company_id: UUID,
+    request: SalesImportRequest,
+    current: AuthenticatedUser = Depends(require_company_access),
+    db: Session = Depends(get_db, scope="function"),
+) -> SalesImportResult:
+    """Load past sales from a spreadsheet as history (no POS ticket, no stock movement)."""
+    if current.role not in ("owner", "admin"):
+        raise ForbiddenError(message="Solo el propietario o un administrador puede importar ventas.")
+    result = import_sales_history(
+        db,
+        company_id,
+        [r.model_dump(mode="json") for r in request.rows],
+        allow_duplicates=request.allow_duplicates,
+    )
+    return SalesImportResult(**result)
 
 
 @router.get("/by-product/{product_id}", response_model=list[SaleDTO])
