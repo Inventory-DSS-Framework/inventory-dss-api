@@ -168,6 +168,11 @@ class SalesImportRow(BaseModel):
     quantity: Decimal
     unit_price: Decimal | None = None
     seller_name: str | None = None
+    # Ticket data: lines sharing a comprobante become one ticket.
+    document_number: str | None = None
+    payment_method: str | None = None
+    client_name: str | None = None
+    client_doc: str | None = None
 
 
 class SalesImportRequest(BaseModel):
@@ -185,6 +190,7 @@ class SalesImportError(BaseModel):
 class SalesImportResult(BaseModel):
     batch_id: UUID | None
     created: int
+    tickets: int = 0
     units: int
     revenue: Decimal
     period_start: date | None
