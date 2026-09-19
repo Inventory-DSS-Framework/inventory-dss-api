@@ -22,6 +22,11 @@ from app.modules.recommendations.domain.enums import RecommendationPriority
 DEFAULT_LEAD_TIME_DAYS = 7
 
 
+#: One rule across the ERP (inventory status, "Mis números", "Qué comprar", the forecast's
+#: action plan): buy when the stock won't last the supplier's wait plus two weeks.
+SAFETY_MARGIN_DAYS = 14
+
+
 def effective_lead_time(days: int | None) -> int:
     return days if days and days > 0 else DEFAULT_LEAD_TIME_DAYS
 
@@ -53,7 +58,7 @@ def suggest_reorder(inp: ReorderInputs) -> ReorderSuggestion | None:
     demand_window = _window_sum(inp.daily_demand, lead + inp.review_days)
     order_up_to = demand_window + Decimal(inp.safety_stock)
 
-    exposure = demand_lead + Decimal(inp.safety_stock)
+    exposure = _window_sum(inp.daily_demand, lead + SAFETY_MARGIN_DAYS) + Decimal(inp.safety_stock)
     triggered = inp.current_stock <= inp.reorder_point or (
         Decimal(inp.current_stock) < exposure
     )
@@ -65,9 +70,12 @@ def suggest_reorder(inp: ReorderInputs) -> ReorderSuggestion | None:
         return None
     quantity = int(raw_qty.to_integral_value(rounding=ROUND_CEILING))
 
-    if inp.current_stock <= inp.safety_stock:
+    # Same urgency the forecast's action plan shows: below safety or not enough to wait
+    # for the supplier -> buy now; below what the wait + safety needs -> this week; only
+    # the manual reorder point fired -> it can wait for the next order.
+    if inp.current_stock <= inp.safety_stock or Decimal(inp.current_stock) < demand_lead:
         priority = RecommendationPriority.HIGH
-    elif Decimal(inp.current_stock) < demand_lead:
+    elif Decimal(inp.current_stock) < exposure:
         priority = RecommendationPriority.MEDIUM
     else:
         priority = RecommendationPriority.LOW

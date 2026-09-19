@@ -17,7 +17,7 @@ from app.modules.forecasting.domain.repositories import (
 )
 from app.modules.forecasting.domain.tracking import infer_frequency, track_product
 from app.modules.recommendations.domain.repositories import RecommendationRepository
-from app.modules.recommendations.domain.services import effective_lead_time
+from app.modules.recommendations.domain.services import SAFETY_MARGIN_DAYS, effective_lead_time
 
 _DAYS = {"weekly": 7.0, "monthly": 30.4375}
 
@@ -153,12 +153,14 @@ class GetRunOverview:
                 risk = "bajo"
             elif on_hand <= 0 or (coverage is not None and coverage < max(lead, 3)):
                 risk = "alto"
-            elif coverage is not None and coverage < lead + 14:
+            elif on_hand < daily * (lead + SAFETY_MARGIN_DAYS) + safety:
                 risk = "medio"
             else:
                 risk = "bajo"
             rec = pending.get(pid)
-            needs = bool(rec) or (daily > 0 and (on_hand <= reorder or (coverage is not None and coverage < lead + 7)))
+            # Same rule everywhere: stock below the supplier's wait + two weeks + safety stock.
+            short = on_hand < daily * (lead + SAFETY_MARGIN_DAYS) + safety
+            needs = bool(rec) or (daily > 0 and (on_hand <= reorder or short))
             if rec:
                 qty = int(rec.recommended_quantity.value)
             elif needs:

@@ -53,9 +53,20 @@ def test_turnover() -> None:
 
 
 def test_overstock_risk_when_excess() -> None:
-    # lead demand 50; stock 1000 -> heavy overstock
+    # 10/day: ~4 months need 1200; stock 5000 (500 days) -> heavy overstock
+    inp = ProductKpiInputs(current_stock=5000, daily_demand=_daily(10, 30), lead_time_days=5)
+    assert overstock_risk(inp) > Decimal("70")
+
+
+def test_three_months_of_stock_is_not_overstock() -> None:
     inp = ProductKpiInputs(current_stock=1000, daily_demand=_daily(10, 30), lead_time_days=5)
-    assert overstock_risk(inp) > Decimal("90")
+    assert overstock_risk(inp) == Decimal("0")
+
+
+def test_missing_lead_time_assumes_a_week() -> None:
+    # No lead time recorded: 7 days + 7 review -> 140 needed; 60 on hand is a real risk.
+    inp = ProductKpiInputs(current_stock=60, daily_demand=_daily(10, 30), lead_time_days=0)
+    assert stockout_risk(inp) > Decimal("50")
 
 
 def test_compute_all_returns_all_kpi_types() -> None:
@@ -93,9 +104,9 @@ def test_suggest_reorder_none_when_sufficient() -> None:
 
 
 def test_suggest_reorder_priority_medium() -> None:
-    # stock above safety but below lead-time demand (50) -> medium
+    # covers the supplier wait (50) but not wait + safety (70) -> buy this week
     inp = ReorderInputs(
-        current_stock=40,
+        current_stock=60,
         daily_demand=_daily(10, 30),
         lead_time_days=5,
         safety_stock=20,

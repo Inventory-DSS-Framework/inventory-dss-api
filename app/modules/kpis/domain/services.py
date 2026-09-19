@@ -6,9 +6,11 @@ value. No I/O, no frameworks: the formulas are deterministic and unit-testable.
 
 KPIs:
 - coverage_days: how many days the current stock lasts at the forecasted demand rate.
-- stockout_risk (0-100): shortfall risk over the lead time (demand + safety vs stock).
+- stockout_risk (0-100): shortfall over the lead time plus a two-week margin
+  (demand + safety vs stock). No recorded lead time -> 7 days (see recommendations).
 - turnover: forecasted demand over the horizon divided by current stock.
-- overstock_risk (0-100): how much stock exceeds what is needed over the lead time.
+- overstock_risk (0-100): share of the stock beyond what ~4 months of sales need
+  (same line the action plan uses for "no compres por ahora").
 """
 from __future__ import annotations
 
@@ -16,8 +18,10 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.modules.kpis.domain.enums import KpiType
+from app.modules.recommendations.domain.services import SAFETY_MARGIN_DAYS, effective_lead_time
 
 _COVERAGE_CAP = Decimal("9999")  # sentinel for "effectively infinite" coverage
+_OVERSTOCK_DAYS = 120  # more than ~4 months of sales on hand is money standing still
 
 
 def _clamp_pct(value: Decimal) -> Decimal:
@@ -39,9 +43,22 @@ class ProductKpiInputs:
         return sum(self.daily_demand, Decimal("0"))
 
     @property
+    def lead(self) -> int:
+        return effective_lead_time(self.lead_time_days)
+
+    def demand_over(self, days: int) -> Decimal:
+        """Forecast demand over ``days``, extending the horizon at its average daily rate."""
+        if days <= 0 or not self.daily_demand:
+            return Decimal("0")
+        window = sum(self.daily_demand[:days], Decimal("0"))
+        extra = days - len(self.daily_demand)
+        if extra > 0:
+            window += self.total_demand / Decimal(len(self.daily_demand)) * Decimal(extra)
+        return window
+
+    @property
     def demand_over_lead_time(self) -> Decimal:
-        window = self.daily_demand[: self.lead_time_days] if self.lead_time_days else []
-        return sum(window, Decimal("0"))
+        return self.demand_over(self.lead)
 
 
 def coverage_days(inp: ProductKpiInputs) -> Decimal:
@@ -55,7 +72,7 @@ def coverage_days(inp: ProductKpiInputs) -> Decimal:
 
 
 def stockout_risk(inp: ProductKpiInputs) -> Decimal:
-    needed = inp.demand_over_lead_time + Decimal(inp.safety_stock)
+    needed = inp.demand_over(inp.lead + SAFETY_MARGIN_DAYS) + Decimal(inp.safety_stock)
     if needed <= 0:
         return Decimal("0")
     shortfall = needed - Decimal(inp.current_stock)
@@ -69,7 +86,7 @@ def turnover(inp: ProductKpiInputs) -> Decimal:
 
 
 def overstock_risk(inp: ProductKpiInputs) -> Decimal:
-    target = inp.demand_over_lead_time + Decimal(inp.safety_stock)
+    target = inp.demand_over(_OVERSTOCK_DAYS) + Decimal(inp.safety_stock)
     if inp.current_stock <= 0:
         return Decimal("0")
     excess = Decimal(inp.current_stock) - target

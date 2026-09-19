@@ -6,7 +6,7 @@ so the main inventory screen needs a single request.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -14,6 +14,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.modules.forecasting.infrastructure.persistence.models import (
+    ForecastResultModel,
+    ForecastRunModel,
+)
 from app.modules.inventory.application.dtos import (
     InventoryOverviewDTO,
     InventoryOverviewItemDTO,
@@ -25,10 +29,14 @@ from app.modules.inventory.application.dtos import (
 from app.modules.inventory.infrastructure.persistence.models import InventoryMovementModel
 from app.modules.inventory.infrastructure.persistence.queries import stock_on_hand_map
 from app.modules.products.infrastructure.persistence.models import CategoryModel, ProductModel
+from app.modules.recommendations.domain.services import SAFETY_MARGIN_DAYS, effective_lead_time
 from app.modules.sales.infrastructure.persistence.models import LostSaleModel, SaleModel
 
 LIMA = ZoneInfo("America/Lima")
 _CENT = Decimal("0.01")
+
+
+_MONTH_DAYS = 30.4375
 
 
 def stock_status(on_hand: int, safety_stock: int, reorder_point: int) -> str:
@@ -39,6 +47,37 @@ def stock_status(on_hand: int, safety_stock: int, reorder_point: int) -> str:
     if on_hand <= reorder_point:
         return "reordenar"
     return "ok"
+
+
+def forecast_daily_rates(session: Session, company_id: UUID, runs: int = 20) -> dict[UUID, float]:
+    """Expected units per day from the newest successful forecast that covers each product.
+
+    Inventory, "Mis números", "Qué comprar" and the forecast's action plan then all judge
+    "how long will it last" with the same number (the forecast), not two different paces.
+    """
+    rates: dict[UUID, float] = {}
+    run_rows = session.execute(
+        select(ForecastRunModel.id, ForecastRunModel.frequency)
+        .where(ForecastRunModel.company_id == company_id, ForecastRunModel.status == "success")
+        .order_by(ForecastRunModel.created_at.desc())
+        .limit(runs)
+    ).all()
+    for run_id, frequency in run_rows:
+        results = session.execute(
+            select(ForecastResultModel.product_id, ForecastResultModel.points).where(
+                ForecastResultModel.run_id == run_id
+            )
+        ).all()
+        for product_id, points in results:
+            if product_id in rates or not points:
+                continue
+            if len(points) >= 2:
+                gap = (date.fromisoformat(points[1]["period_date"]) - date.fromisoformat(points[0]["period_date"])).days
+                days = 7.0 if gap <= 8 else _MONTH_DAYS
+            else:
+                days = 7.0 if frequency == "weekly" else _MONTH_DAYS
+            rates[product_id] = max(0.0, float(points[0]["predicted_demand"])) / days
+    return rates
 
 
 class SqlInventoryOverviewQuery:
@@ -100,6 +139,8 @@ class SqlInventoryOverviewQuery:
             ).all()
         }
 
+        forecast_rates = forecast_daily_rates(s, company_id)
+
         items: list[InventoryOverviewItemDTO] = []
         counts: dict[str, int] = defaultdict(int)
         units_total = 0
@@ -114,7 +155,14 @@ class SqlInventoryOverviewQuery:
             retail_value = (price * positive).quantize(_CENT)
             status = stock_status(qty, p.safety_stock, p.reorder_point)
             sold = sold_30.get(p.id, 0)
-            coverage = round(positive / (sold / 30), 1) if sold > 0 else None
+            # Pace: the latest forecast when there is one, else the last 30 days of sales.
+            daily = forecast_rates.get(p.id, sold / 30)
+            coverage = round(positive / daily, 1) if daily > 0 else None
+            # Owners rarely set reorder points: also flag products whose stock won't last
+            # the supplier's wait plus two weeks (plus their minimum stock).
+            window = effective_lead_time(p.lead_time_days) + SAFETY_MARGIN_DAYS
+            if status == "ok" and daily > 0 and positive < daily * window + p.safety_stock:
+                status = "reordenar"
             path = paths.get(p.category_id, []) if p.category_id else []
             last = last_move.get(p.id)
             if last is not None and last.tzinfo is None:
