@@ -164,6 +164,17 @@ def import_sales_history(
             client_doc=str(row.get("client_doc") or "").strip(),
         ))
 
+    # Old sales must never discount stock: the current stock already reflects them, so
+    # discounting again would empty the inventory and reject most rows on the way.
+    if affect_stock and valid:
+        old_rows = sum(1 for v in valid if (today - v.sale_date).days > 60)
+        if old_rows > len(valid) / 2:
+            raise ValidationError(
+                message="La mayoría de estas ventas tienen más de 2 meses. Impórtalas como ventas pasadas "
+                "(con «Descontar del stock» apagado): tu stock actual ya las refleja, y si las descuentas "
+                "de nuevo te quedarías sin stock en el sistema."
+            )
+
     # Bulk sales take real stock out: walk the rows in date order and refuse any line
     # that asks for more units than are left at that point.
     if affect_stock and valid:

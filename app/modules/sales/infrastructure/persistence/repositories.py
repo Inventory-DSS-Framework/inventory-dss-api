@@ -58,12 +58,12 @@ class SqlSaleRepository:
     def list_by_company(
         self, company_id: UUID, offset: int = 0, limit: int = 50, origin: str | None = None
     ) -> list[Sale]:
-        """origin: "pos" (lines of a ticket), "imported" (history without a ticket) or None (all)."""
+        """origin: "pos" (rung up in the app), "imported" (loaded from a spreadsheet) or None (all)."""
         stmt = select(SaleModel).where(SaleModel.company_id == company_id)
         if origin == "pos":
-            stmt = stmt.where(SaleModel.order_id.is_not(None))
+            stmt = stmt.where(SaleModel.batch_id.is_(None))
         elif origin == "imported":
-            stmt = stmt.where(SaleModel.order_id.is_(None))
+            stmt = stmt.where(SaleModel.batch_id.is_not(None))
         rows = self._session.execute(
             stmt.order_by(SaleModel.sale_date.desc()).offset(offset).limit(limit)
         ).scalars().all()

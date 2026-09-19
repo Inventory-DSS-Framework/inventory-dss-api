@@ -116,7 +116,7 @@ def _own_scope(current: AuthenticatedUser, requested: UUID | None) -> UUID | Non
 def list_sales(
     company_id: UUID,
     origin: Literal["pos", "imported"] | None = Query(
-        None, description="pos = lines of POS tickets; imported = history without a ticket"
+        None, description="pos = rung up in the app; imported = loaded from a spreadsheet"
     ),
     pagination: PaginationParams = Depends(get_pagination),
     _: AuthenticatedUser = Depends(require_company_access),

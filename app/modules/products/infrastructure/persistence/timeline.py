@@ -17,6 +17,7 @@ from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.modules.inventory.infrastructure.persistence.models import InventoryMovementModel
+from app.modules.inventory.infrastructure.persistence.overview import forecast_daily_rates
 from app.modules.products.application.dtos import (
     MonthlySalesPointDTO,
     ProductDTO,
@@ -296,7 +297,11 @@ class SqlProductTimelineQuery:
 
         avg_price = (revenue_365 / units[365]).quantize(Decimal("0.01")) if units[365] else None
         margin = float(((revenue_365 - cost_365) / revenue_365) * 100) if revenue_365 > 0 else None
-        coverage = round(on_hand / (units[30] / 30), 1) if units[30] > 0 else None
+        # Same pace rule as the inventory overview: the latest forecast when there is
+        # one, else the last 30 days — so every screen quotes the same coverage.
+        forecast_rate = forecast_daily_rates(s, company_id).get(product_id)
+        daily_rate = forecast_rate if forecast_rate else (units[30] / 30 if units[30] > 0 else None)
+        coverage = round(on_hand / daily_rate, 1) if daily_rate else None
 
         stats = TimelineStatsDTO(
             stock_on_hand=on_hand,
