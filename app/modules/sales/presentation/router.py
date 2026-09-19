@@ -173,6 +173,8 @@ class SalesImportRow(BaseModel):
 class SalesImportRequest(BaseModel):
     rows: list[SalesImportRow] = Field(min_length=1, max_length=20000)
     allow_duplicates: bool = False
+    # False = history (no stock movement); True = bulk sales that take stock out.
+    affect_stock: bool = False
 
 
 class SalesImportError(BaseModel):
@@ -198,14 +200,15 @@ def import_sales(
     current: AuthenticatedUser = Depends(require_company_access),
     db: Session = Depends(get_db, scope="function"),
 ) -> SalesImportResult:
-    """Load past sales from a spreadsheet as history (no POS ticket, no stock movement)."""
+    """Load sales from a spreadsheet: as history, or as bulk sales that take stock out."""
     if current.role not in ("owner", "admin"):
-        raise ForbiddenError(message="Solo el propietario o un administrador puede importar ventas.")
+        raise ForbiddenError(message="Solo el propietario o un administrador puede cargar ventas masivamente.")
     result = import_sales_history(
         db,
         company_id,
         [r.model_dump(mode="json") for r in request.rows],
         allow_duplicates=request.allow_duplicates,
+        affect_stock=request.affect_stock,
     )
     return SalesImportResult(**result)
 
