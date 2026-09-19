@@ -17,6 +17,7 @@ from app.modules.forecasting.domain.repositories import (
 )
 from app.modules.forecasting.domain.tracking import infer_frequency, track_product
 from app.modules.recommendations.domain.repositories import RecommendationRepository
+from app.modules.recommendations.domain.services import effective_lead_time
 
 _DAYS = {"weekly": 7.0, "monthly": 30.4375}
 
@@ -144,7 +145,7 @@ class GetRunOverview:
             total_units = sum(float(x.predicted_demand) for x in points)
             on_hand = stock.get(pid, 0)
             daily = next_units / _DAYS.get(freq, 30.4375)
-            lead = p.lead_time_days if p else 0
+            lead = effective_lead_time(p.lead_time_days if p else 0)
             safety = p.safety_stock if p else 0
             reorder = p.reorder_point if p else 0
             coverage = (on_hand / daily) if daily > 0 else None
@@ -182,6 +183,7 @@ class GetRunOverview:
                     "metrics": ForecastMetricsDTO.from_entity(m).model_dump(mode="json") if m else None,
                     "holdout": diag.get("holdout"),
                     "skill_vs_naive": diag.get("skill_vs_naive"),
+                    "accuracy_pct": diag.get("accuracy_pct"),
                     "trend_pct": diag.get("forecast_vs_recent_pct"),
                     "next_period": points[0].period_date.isoformat() if points else None,
                     "next_period_units": round(next_units, 2),
@@ -206,6 +208,8 @@ class GetRunOverview:
             "products_ok": sum(1 for r in rows if r["status"] == "ok"),
             "products_fallback": sum(1 for r in rows if r["status"] == "fallback"),
             "products_skipped": sum(1 for r in rows if r["status"] == "skipped"),
+            # Plain accuracy of the whole run, weighted by how much each product sells.
+            "accuracy_pct": _weighted_accuracy(rows),
         }
         return {
             "run": ForecastRunDTO.from_entity(run).model_dump(mode="json"),
@@ -214,3 +218,13 @@ class GetRunOverview:
             "products": rows,
             "diagnostics": diagnostics,
         }
+
+
+def _weighted_accuracy(rows: list[dict]) -> float | None:
+    pairs = [
+        (float(r["accuracy_pct"]), float(r["total_forecast_units"]))
+        for r in rows
+        if r.get("accuracy_pct") is not None and r["total_forecast_units"] > 0
+    ]
+    weight = sum(w for _, w in pairs)
+    return round(sum(a * w for a, w in pairs) / weight, 1) if weight > 0 else None

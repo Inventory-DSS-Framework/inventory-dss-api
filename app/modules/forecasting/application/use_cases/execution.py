@@ -41,6 +41,11 @@ def summarize(forecasts: list[ProductForecast]) -> dict[str, Any]:
         for f in forecasts
         if isinstance(f.diagnostics.get("holdout"), dict) and f.diagnostics["holdout"].get("mape") is not None
     ]
+    accuracies = sorted(
+        float(f.diagnostics["accuracy_pct"])
+        for f in forecasts
+        if f.diagnostics.get("accuracy_pct") is not None
+    )
     return {
         "total_forecast_units": round(total, 1),
         "next_period_units": round(next_period, 1),
@@ -50,6 +55,7 @@ def summarize(forecasts: list[ProductForecast]) -> dict[str, Any]:
         "models": models,
         "frequencies": freqs,
         "median_holdout_mape": round(sorted(mapes)[len(mapes) // 2], 2) if mapes else None,
+        "median_accuracy_pct": round(accuracies[len(accuracies) // 2], 1) if accuracies else None,
     }
 
 

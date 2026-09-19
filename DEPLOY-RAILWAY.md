@@ -34,7 +34,7 @@ la normaliza sola al driver psycopg.
    ```
    DATABASE_URL                = ${{Postgres.DATABASE_URL}}
    FTGM_ENGINE_BASE_URL        = https://<tu-ftgm>.up.railway.app/api/v1
-   FTGM_ENGINE_TIMEOUT_SECONDS = 90
+   FTGM_ENGINE_TIMEOUT_SECONDS = 120
    JWT_SECRET_KEY              = <cadena larga y aleatoria>
    APP_ENV                     = production
    APP_DEBUG                   = false

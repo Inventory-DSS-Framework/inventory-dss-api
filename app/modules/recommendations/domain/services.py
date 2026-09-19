@@ -17,6 +17,15 @@ from decimal import ROUND_CEILING, Decimal
 from app.modules.recommendations.domain.enums import RecommendationPriority
 
 
+#: Supplier lead time assumed when the product has none recorded (0). Imported catalogs
+#: rarely carry it, and 0 would mean "arrives instantly" -> never reorder in time.
+DEFAULT_LEAD_TIME_DAYS = 7
+
+
+def effective_lead_time(days: int | None) -> int:
+    return days if days and days > 0 else DEFAULT_LEAD_TIME_DAYS
+
+
 @dataclass(frozen=True)
 class ReorderInputs:
     current_stock: int
@@ -24,7 +33,7 @@ class ReorderInputs:
     lead_time_days: int
     safety_stock: int = 0
     reorder_point: int = 0
-    review_days: int = 7
+    review_days: int = 30  # MYPEs restock about monthly: cover lead time + a month
 
 
 @dataclass(frozen=True)
@@ -39,8 +48,9 @@ def _window_sum(values: list[Decimal], days: int) -> Decimal:
 
 
 def suggest_reorder(inp: ReorderInputs) -> ReorderSuggestion | None:
-    demand_lead = _window_sum(inp.daily_demand, inp.lead_time_days)
-    demand_window = _window_sum(inp.daily_demand, inp.lead_time_days + inp.review_days)
+    lead = effective_lead_time(inp.lead_time_days)
+    demand_lead = _window_sum(inp.daily_demand, lead)
+    demand_window = _window_sum(inp.daily_demand, lead + inp.review_days)
     order_up_to = demand_window + Decimal(inp.safety_stock)
 
     exposure = demand_lead + Decimal(inp.safety_stock)
@@ -64,7 +74,7 @@ def suggest_reorder(inp: ReorderInputs) -> ReorderSuggestion | None:
 
     reason = (
         f"Stock actual {inp.current_stock}; demanda estimada en lead time "
-        f"({inp.lead_time_days}d) {demand_lead.quantize(Decimal('0.1'))}. Reponer "
+        f"({lead}d) {demand_lead.quantize(Decimal('0.1'))}. Reponer "
         f"{quantity} unidades para alcanzar el nivel objetivo "
         f"{order_up_to.quantize(Decimal('0.1'))}."
     )
