@@ -36,6 +36,9 @@ SPARKLINE_MONTHS = 24
 READY = "listo"
 LOW_DATA = "pocos_datos"
 NO_SALES = "sin_ventas"
+#: Has sales, but all of them fall in the period still in progress (e.g. a brand-new
+#: account that sold today). Nothing complete to model yet — not the same as "no sales".
+IN_PROGRESS = "en_curso"
 
 
 # ----------------------------------------------------------------------------- periods
@@ -153,7 +156,11 @@ def _choose_frequency(requested: str, months: int, weeks: int) -> tuple[str, str
 
 def analyze(h: ProductHistory, as_of: date, requested_frequency: str = "auto") -> dict[str, Any]:
     """Per-product readiness analysis (see module docstring)."""
+    # What the model can use (strictly before the cut-off) vs. everything sold up to the
+    # cut-off day — today's POS sales must show up in the counts even though the period
+    # they belong to is still open.
     sale_days = sorted(d for d, u in h.sales.items() if u > 0 and d < as_of)
+    shown_days = sorted(d for d, u in h.sales.items() if u > 0 and d <= as_of)
     info = detect_stockouts(h, as_of)
     purchases = sorted((d, q) for d, q in h.purchases if d < as_of + timedelta(days=1))
     lost_attempts = sum(a for d, (a, _) in h.lost.items() if d < as_of)
@@ -164,9 +171,9 @@ def analyze(h: ProductHistory, as_of: date, requested_frequency: str = "auto") -
         "name": h.name,
         "unit_cost": float(h.unit_cost),
         "on_hand": h.on_hand,
-        "first_sale": sale_days[0].isoformat() if sale_days else None,
-        "last_sale": sale_days[-1].isoformat() if sale_days else None,
-        "total_units": int(sum(h.sales.get(d, 0) for d in sale_days)),
+        "first_sale": shown_days[0].isoformat() if shown_days else None,
+        "last_sale": shown_days[-1].isoformat() if shown_days else None,
+        "total_units": int(sum(h.sales.get(d, 0) for d in shown_days)),
         "sales_count": h.sales_count,
         "stockout_days": len(info.days),
         "lost_sale_attempts": lost_attempts,
@@ -203,8 +210,11 @@ def analyze(h: ProductHistory, as_of: date, requested_frequency: str = "auto") -
         {"period": b.isoformat(), "units": monthly.get(b, 0)} for b in iter_buckets(sparkline_start, current_month, "monthly")
     ]
 
-    if not sale_days:
+    if not shown_days:
         base["reason"] = "Sin ventas registradas: no hay demanda que modelar. Se excluye."
+        return base
+    if not sale_days:
+        base.update(readiness=IN_PROGRESS, reason=_in_progress_reason(h, shown_days, as_of, requested_frequency))
         return base
 
     first = sale_days[0]
@@ -217,7 +227,7 @@ def analyze(h: ProductHistory, as_of: date, requested_frequency: str = "auto") -
     base["frequency_reason"] = freq_reason
 
     if not buckets:
-        base["reason"] = "Solo hay ventas en el periodo en curso; aún no hay periodos completos. Se excluye."
+        base.update(readiness=IN_PROGRESS, reason=_in_progress_reason(h, shown_days, as_of, frequency))
         return base
 
     units: dict[date, int] = {}
@@ -274,6 +284,22 @@ def analyze(h: ProductHistory, as_of: date, requested_frequency: str = "auto") -
             reason=f"{len(buckets)} {word} de historia, {with_data} con ventas.{extra}",
         )
     return base
+
+
+def _in_progress_reason(h: ProductHistory, days: list[date], as_of: date, frequency: str) -> str:
+    """Plain-Spanish explanation for sales that only exist in the period still open."""
+    n = int(sum(h.sales.get(d, 0) for d in days))
+    if frequency == "monthly":
+        start, word = month_start(as_of), "el mes en curso"
+        joins, unit = next_month(start), "meses completos"
+    else:
+        start, word = week_start(as_of), "la semana en curso"
+        joins, unit = start + timedelta(days=7), "semanas completas"
+    return (
+        f"{n} unidad(es) vendidas en {word} (desde el {start:%d/%m}). El motor solo usa {unit}: "
+        f"estas ventas entrarán el {joins:%d/%m/%Y}. Para pronosticar hoy, importa tu historial "
+        "en Ventas › Historial importado (con 1 semana completa usa un baseline; con 26 semanas, el FTGM)."
+    )
 
 
 def build_points(h: ProductHistory, as_of: date) -> list[SeriesPoint]:

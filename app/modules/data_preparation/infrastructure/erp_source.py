@@ -39,6 +39,11 @@ def _lima_date(column: Any) -> Any:
     return func.date(func.timezone(_LIMA_TZ, column))
 
 
+def _as_date(value: Any) -> date:
+    """SQL ``date()`` comes back as a date on Postgres but as text on other drivers."""
+    return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+
+
 class ErpDataSource:
     def __init__(self, session: Session) -> None:
         self._s = session
@@ -165,7 +170,7 @@ class ErpDataSource:
             .where(LostSaleModel.company_id == company_id, LostSaleModel.product_id.in_(ids))
             .group_by(LostSaleModel.product_id, lost_day)
         ).all():
-            histories[pid].lost[day] = (int(attempts), int(units or 0))
+            histories[pid].lost[_as_date(day)] = (int(attempts), int(units or 0))
 
         move_day = _lima_date(InventoryMovementModel.occurred_at)
         signed = case(
@@ -178,6 +183,7 @@ class ErpDataSource:
             .group_by(InventoryMovementModel.product_id, move_day)
         ).all():
             h = histories[pid]
+            day = _as_date(day)
             h.moves[day] = h.moves.get(day, 0) + int(net or 0)
             h.moves_count += int(n)
 
