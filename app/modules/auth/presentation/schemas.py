@@ -14,7 +14,10 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
+    """`email` accepts an email or a username (backward compatible); `identifier` is an alias."""
+
+    email: str | None = None
+    identifier: str | None = None
     password: str
 
 

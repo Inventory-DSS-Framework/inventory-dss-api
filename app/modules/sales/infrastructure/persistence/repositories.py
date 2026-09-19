@@ -4,20 +4,32 @@ from __future__ import annotations
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.modules.sales.domain.entities import Sale, SalesBatch
-from app.modules.sales.domain.exceptions import SalesBatchNotFoundError
+from app.modules.products.infrastructure.persistence.models import ProductModel
+from app.modules.sales.domain.entities import LostSale, Sale, SalesBatch, SalesOrder
+from app.modules.sales.domain.exceptions import (
+    SalesBatchNotFoundError,
+    SalesOrderNotFoundError,
+)
 from app.modules.sales.infrastructure.persistence.mappers import (
     batch_to_entity,
     batch_to_model,
+    line_to_entity,
+    lost_sale_to_entity,
+    lost_sale_to_model,
+    order_line_to_model,
+    order_to_entity,
+    order_to_model,
     sale_to_entity,
     sale_to_model,
 )
 from app.modules.sales.infrastructure.persistence.models import (
+    LostSaleModel,
     SaleModel,
     SalesBatchModel,
+    SalesOrderModel,
 )
 
 
@@ -44,14 +56,16 @@ class SqlSaleRepository:
         return [sale_to_entity(m) for m in rows]
 
     def list_by_company(
-        self, company_id: UUID, offset: int = 0, limit: int = 50
+        self, company_id: UUID, offset: int = 0, limit: int = 50, origin: str | None = None
     ) -> list[Sale]:
+        """origin: "pos" (lines of a ticket), "imported" (history without a ticket) or None (all)."""
+        stmt = select(SaleModel).where(SaleModel.company_id == company_id)
+        if origin == "pos":
+            stmt = stmt.where(SaleModel.order_id.is_not(None))
+        elif origin == "imported":
+            stmt = stmt.where(SaleModel.order_id.is_(None))
         rows = self._session.execute(
-            select(SaleModel)
-            .where(SaleModel.company_id == company_id)
-            .order_by(SaleModel.sale_date.desc())
-            .offset(offset)
-            .limit(limit)
+            stmt.order_by(SaleModel.sale_date.desc()).offset(offset).limit(limit)
         ).scalars().all()
         return [sale_to_entity(m) for m in rows]
 
@@ -84,7 +98,7 @@ class SqlSaleRepository:
             )
         )
         self._session.flush()
-        return int(result.rowcount or 0)
+        return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
 
 class SqlSalesBatchRepository:
@@ -120,3 +134,66 @@ class SqlSalesBatchRepository:
         model.period_end = batch.period.end if batch.period else None
         self._session.flush()
         return batch_to_entity(model)
+
+
+class SqlSalesOrderRepository:
+    """POS tickets: the header in sales_orders, each product line as a `sales` row."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def next_order_number(self, company_id: UUID) -> int:
+        current = self._session.execute(
+            select(func.max(SalesOrderModel.order_number)).where(
+                SalesOrderModel.company_id == company_id
+            )
+        ).scalar_one()
+        return int(current or 0) + 1
+
+    def add(self, order: SalesOrder) -> SalesOrder:
+        model = order_to_model(order)
+        self._session.add(model)
+        self._session.flush()
+        order.id = model.id
+        line_models = [order_line_to_model(order, line) for line in order.lines]
+        self._session.add_all(line_models)
+        self._session.flush()
+        lines = [
+            line_to_entity(m, line.product_name, line.sku)
+            for m, line in zip(line_models, order.lines)
+        ]
+        return order_to_entity(model, lines)
+
+    def get(self, company_id: UUID, order_id: UUID) -> SalesOrder | None:
+        model = self._session.get(SalesOrderModel, order_id)
+        if model is None or model.company_id != company_id:
+            return None
+        rows = self._session.execute(
+            select(SaleModel, ProductModel.name, ProductModel.sku)
+            .outerjoin(ProductModel, ProductModel.id == SaleModel.product_id)
+            .where(SaleModel.order_id == order_id)
+            .order_by(ProductModel.name)
+        ).all()
+        lines = [line_to_entity(m, name or "", sku or "") for m, name, sku in rows]
+        return order_to_entity(model, lines)
+
+    def update(self, order: SalesOrder) -> SalesOrder:
+        model = self._session.get(SalesOrderModel, order.id)
+        if model is None:
+            raise SalesOrderNotFoundError(message=f"Venta '{order.id}' no encontrada")
+        model.status = order.status.value
+        model.invoice_id = order.invoice_id
+        model.notes = order.notes[:500]
+        self._session.flush()
+        return order
+
+
+class SqlLostSaleRepository:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def add(self, lost_sale: LostSale) -> LostSale:
+        model = lost_sale_to_model(lost_sale)
+        self._session.add(model)
+        self._session.flush()
+        return lost_sale_to_entity(model)

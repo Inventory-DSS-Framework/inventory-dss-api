@@ -31,3 +31,4 @@ class HistoryPoint:
     cleaned: Decimal
     fitted: Decimal | None = None
     is_stockout: bool = False
+    is_outlier: bool = False

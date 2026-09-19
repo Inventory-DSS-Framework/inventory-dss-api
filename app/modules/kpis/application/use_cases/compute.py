@@ -12,8 +12,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from app.config import settings
-from app.modules.forecasting.domain.enums import RunStatus
+from app.modules.forecasting.application.latest import (
+    latest_results_by_product,
+    to_daily_demand,
+)
 from app.modules.forecasting.domain.repositories import (
     ForecastResultRepository,
     ForecastRunRepository,
@@ -28,26 +30,6 @@ from app.modules.products.domain.repositories import ProductRepository
 from app.shared.domain.errors import ValidationError
 
 _MOVE_PAGE = 200
-# Approximate calendar days per seasonal period, to turn per-period (monthly) forecast
-# points into the daily-demand series the day-based reorder/KPI policies expect.
-_DAYS_PER_PERIOD = {12: 30.44, 4: 91.31, 52: 7.0, 1: 1.0}
-
-
-def _to_daily_demand(points: list) -> list[Decimal]:
-    """Expand per-period forecast points into a flat daily-demand series.
-
-    The FTGM engine forecasts one value per seasonal period (monthly by default), but
-    the reorder/KPI formulas reason in days. Spread each period's demand evenly across
-    its days so ``daily_demand[:lead_time_days]`` is the demand over the lead time.
-    """
-    period_days = _DAYS_PER_PERIOD.get(settings.ftgm_seasonal_period, 30.44)
-    span = max(1, round(period_days))
-    divisor = Decimal(str(period_days))
-    daily: list[Decimal] = []
-    for p in points:
-        rate = p.predicted_demand / divisor
-        daily.extend([rate] * span)
-    return daily
 
 
 class ComputeCompanyKpis:
@@ -77,28 +59,25 @@ class ComputeCompanyKpis:
             offset += _MOVE_PAGE
         return compute_stock_on_hand(collected)
 
-    def _latest_successful_run(self, company_id: UUID) -> UUID:
-        for run in self._runs.list_by_company(company_id, 0, 50):
-            if run.status == RunStatus.SUCCESS and run.id is not None:
-                return run.id
-        raise ValidationError(
-            message="No completed forecast run available; run a forecast first."
-        )
-
     def execute(self, company_id: UUID) -> list[KpiDTO]:
-        run_id = self._latest_successful_run(company_id)
+        # Each product uses the freshest successful run that forecast it (runs may cover
+        # one product, a supplier, a category…), with its own period length.
+        latest = latest_results_by_product(self._runs, self._results, company_id)
+        if not latest:
+            raise ValidationError(
+                message="Aún no hay un pronóstico completado; ejecuta el motor FTGM primero."
+            )
         computed_at = datetime.now(timezone.utc)
 
         to_add: list[Kpi] = []
         for product in self._products.list_active(company_id):
-            if product.id is None:
+            if product.id is None or product.id not in latest:
                 continue
-            result = self._results.get_by_run_and_product(run_id, product.id)
-            if result is None or not result.points:
-                continue
+            run, result = latest[product.id]
+            run_id = run.id
             inputs = ProductKpiInputs(
                 current_stock=self._current_stock(product.id),
-                daily_demand=_to_daily_demand(result.points),
+                daily_demand=to_daily_demand(result.points, run.frequency),
                 lead_time_days=product.lead_time_days,
                 safety_stock=product.safety_stock,
             )

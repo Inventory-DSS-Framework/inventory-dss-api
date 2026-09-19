@@ -21,7 +21,7 @@ class VersionResponse(BaseModel):
     version: str
 
 @router.get("/health", response_model=HealthResponse)
-def health_check(db: Session = Depends(get_db)) -> HealthResponse:
+def health_check(db: Session = Depends(get_db, scope="function")) -> HealthResponse:
     """Basic health check endpoint that verifies database connectivity."""
     db_status = "ok"
     try:
@@ -35,7 +35,7 @@ def health_check(db: Session = Depends(get_db)) -> HealthResponse:
     )
 
 @router.get("/status", response_model=StatusResponse)
-def system_status(db: Session = Depends(get_db)) -> StatusResponse:
+def system_status(db: Session = Depends(get_db, scope="function")) -> StatusResponse:
     """More detailed status endpoint checking various dependencies."""
     db_status = "ok"
     try:

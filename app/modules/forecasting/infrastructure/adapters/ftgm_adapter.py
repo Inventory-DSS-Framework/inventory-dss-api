@@ -21,17 +21,21 @@ from app.modules.forecasting.application.ports import ProductForecast
 from app.modules.forecasting.domain.value_objects import ForecastPoint, HistoryPoint
 
 # Approximate calendar length of one seasonal period, used to convert a horizon
-# expressed in days into the number of periods the engine forecasts.
+# expressed in days into the number of periods the engine forecasts (legacy contract).
 _DAYS_PER_PERIOD = {12: 30, 4: 91, 52: 7}
 
 
 class FtgmHttpAdapter:
     """Calls POST {ftgm_engine_base_url}/forecast.
 
-    Speaks the engine's batch contract: a seasonal ``period`` (default monthly), a
-    ``horizon`` in periods (converted from the run's day horizon), and one observation
-    list per product including the stock-out flag so the engine can repair censored
-    demand.
+    Two contracts:
+
+    * **frequency-aware** (``frequency`` given, used by ERP-scoped runs): sends
+      ``frequency`` (auto/monthly/weekly), ``horizon_days`` and the ``as_of`` cut-off; the
+      engine picks the bucket size per product and drops the period in progress.
+    * **legacy** (CSV datasets): a fixed seasonal ``period`` and ``horizon`` in periods.
+
+    Each series carries the stock-out flag so the engine can repair censored demand.
     """
 
     def __init__(
@@ -41,7 +45,8 @@ class FtgmHttpAdapter:
         period: int | None = None,
     ) -> None:
         self._base_url = (base_url or settings.ftgm_engine_base_url).rstrip("/")
-        self._timeout = timeout or float(settings.ftgm_engine_timeout_seconds)
+        # Rolling-origin validation re-fits the model several times per product.
+        self._timeout = max(timeout or float(settings.ftgm_engine_timeout_seconds), 180.0)
         self._period = period or settings.ftgm_seasonal_period
 
     def forecast(
@@ -50,11 +55,12 @@ class FtgmHttpAdapter:
         series: list[PreparedTimeSeries],
         horizon_days: int,
         model_name: str,
+        frequency: str | None = None,
+        as_of: date | None = None,
     ) -> list[ProductForecast]:
-        payload = {
+        payload: dict[str, Any] = {
             "model": model_name,
             "period": self._period,
-            "horizon": self._days_to_periods(horizon_days),
             "series": [
                 {
                     "product_id": str(s.product_id),
@@ -70,9 +76,15 @@ class FtgmHttpAdapter:
                 for s in series
             ],
         }
-        response = httpx.post(
-            f"{self._base_url}/forecast", json=payload, timeout=self._timeout
-        )
+        if frequency:
+            payload["frequency"] = frequency
+            payload["horizon_days"] = horizon_days
+            if as_of is not None:
+                payload["as_of"] = as_of.isoformat()
+        else:
+            payload["horizon"] = self._days_to_periods(horizon_days)
+
+        response = httpx.post(f"{self._base_url}/forecast", json=payload, timeout=self._timeout)
         response.raise_for_status()
         return [self._parse(item) for item in response.json().get("forecasts", [])]
 
@@ -108,14 +120,10 @@ class FtgmHttpAdapter:
                     period_date=date.fromisoformat(str(p["date"])),
                     predicted_demand=Decimal(str(p["predicted_demand"])),
                     lower_bound=(
-                        Decimal(str(p["lower_bound"]))
-                        if p.get("lower_bound") is not None
-                        else None
+                        Decimal(str(p["lower_bound"])) if p.get("lower_bound") is not None else None
                     ),
                     upper_bound=(
-                        Decimal(str(p["upper_bound"]))
-                        if p.get("upper_bound") is not None
-                        else None
+                        Decimal(str(p["upper_bound"])) if p.get("upper_bound") is not None else None
                     ),
                 )
                 for p in item.get("points", [])
@@ -127,6 +135,7 @@ class FtgmHttpAdapter:
                     cleaned=Decimal(str(h["cleaned"])),
                     fitted=FtgmHttpAdapter._optional_decimal(h.get("fitted")),
                     is_stockout=bool(h.get("is_stockout", False)),
+                    is_outlier=bool(h.get("is_outlier", False)),
                 )
                 for h in item.get("history", [])
             ],
@@ -138,8 +147,10 @@ class FtgmHttpAdapter:
             order_selected=int(item.get("order_selected", 0)),
             model_used=str(item.get("model", "")),
             status=str(item.get("status", "ok")),
-            fallback_reason=item.get("fallback_reason"),
-            validation_rmse=FtgmHttpAdapter._optional_decimal(
-                diagnostics.get("validation_rmse")
-            ),
+            fallback_reason=(str(item["fallback_reason"])[:500] if item.get("fallback_reason") else None),
+            validation_rmse=FtgmHttpAdapter._optional_decimal(diagnostics.get("validation_rmse")),
+            frequency=item.get("frequency"),
+            period=item.get("period"),
+            warnings=list(item.get("warnings") or []),
+            diagnostics=diagnostics,
         )

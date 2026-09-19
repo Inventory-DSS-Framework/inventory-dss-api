@@ -47,7 +47,8 @@ def user_to_entity(model: UserModel) -> User:
     return User(
         id=model.id,
         company_id=model.company_id,
-        email=Email(model.email),
+        email=Email(model.email) if model.email else None,
+        username=model.username,
         full_name=model.full_name,
         hashed_password=model.hashed_password,
         role=UserRole(model.role),
@@ -60,7 +61,8 @@ def user_to_model(entity: User) -> UserModel:
     return UserModel(
         id=entity.id,
         company_id=entity.company_id,
-        email=entity.email.value,
+        email=entity.email.value if entity.email else None,
+        username=entity.username,
         full_name=entity.full_name,
         hashed_password=entity.hashed_password,
         role=entity.role.value,

@@ -19,6 +19,7 @@ class UserRole(StrEnum):
     ADMIN = "admin"
     ANALYST = "analyst"
     VIEWER = "viewer"
+    SELLER = "seller"  # cashier: runs the POS, nothing else
 
 
 class UserStatus(StrEnum):

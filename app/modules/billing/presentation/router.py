@@ -6,37 +6,59 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 
+from app.modules.billing.application.dtos import CheckoutResultDTO, PaymentDTO, PlanDTO
 from app.modules.billing.application.use_cases.billing import (
+    CancelSubscription,
+    Checkout,
+    GetPlan,
     GetSubscription,
+    ListPayments,
+    ListPlans,
+    ResumeSubscription,
     UpdateSubscriptionStatus,
 )
-from app.modules.billing.domain.repositories import SubscriptionRepository
-from app.modules.billing.presentation.dependencies import get_subscription_repository
+from app.modules.billing.domain.enums import BillingCycle, PaymentMethod
+from app.modules.billing.domain.repositories import PaymentRepository, SubscriptionRepository
+from app.modules.billing.presentation.dependencies import (
+    get_payment_repository,
+    get_subscription_repository,
+)
 from app.modules.billing.presentation.schemas import (
+    CheckoutRequest,
     InvoiceResponse,
     PaymentWebhookResponse,
-    PlanResponse,
     SubscriptionRequest,
     SubscriptionResponse,
     WebhookUpdateSubscriptionRequest,
 )
+from app.shared.domain.errors import ForbiddenError
 from app.shared.presentation.deps import AuthenticatedUser, require_company_access
 from app.shared.presentation.schemas import PlaceholderResponse
 
 router = APIRouter()
 companies_router = APIRouter()
 
+BILLING_MANAGER_ROLES = frozenset({"owner", "admin", "superadmin"})
+
+
+def require_billing_manager(
+    user: Annotated[AuthenticatedUser, Depends(require_company_access)],
+) -> AuthenticatedUser:
+    if user.role not in BILLING_MANAGER_ROLES:
+        raise ForbiddenError(message="Solo el propietario o un administrador puede gestionar el plan.")
+    return user
+
 
 # --- Global Billing Endpoints ---
 
-@router.get("/plans", response_model=PlaceholderResponse)
-def list_plans() -> PlaceholderResponse:
-    return PlaceholderResponse(message="Endpoint scaffold ready", module="billing", action="list_plans")
+@router.get("/plans", response_model=list[PlanDTO])
+def list_plans() -> list[PlanDTO]:
+    return ListPlans().execute()
 
 
-@router.get("/plans/{plan_id}", response_model=PlanResponse)
-def get_plan(plan_id: str) -> PlanResponse:
-    return PlanResponse(message="Endpoint scaffold ready", module="billing", action="get_plan")
+@router.get("/plans/{plan_id}", response_model=PlanDTO)
+def get_plan(plan_id: str) -> PlanDTO:
+    return GetPlan().execute(plan_id)
 
 
 @router.post("/webhooks/payment-provider", response_model=PaymentWebhookResponse)
@@ -44,7 +66,7 @@ def payment_webhook() -> PaymentWebhookResponse:
     return PaymentWebhookResponse(message="Endpoint scaffold ready", module="billing", action="payment_webhook")
 
 
-# Let's add a fake webhook endpoint here for testing updates to a company's subscription easily
+# Fake webhook endpoint for testing updates to a company's subscription easily
 @router.post("/webhooks/simulate/{company_id}", response_model=SubscriptionResponse)
 def simulate_webhook_update(
     company_id: UUID,
@@ -60,7 +82,7 @@ def simulate_webhook_update(
         period_start=request.current_period_start,
         period_end=request.current_period_end,
     )
-    return SubscriptionResponse.model_validate(dto)
+    return SubscriptionResponse.model_validate(dto.model_dump())
 
 
 # --- Company Billing Endpoints ---
@@ -71,9 +93,58 @@ def get_company_subscription(
     repo: Annotated[SubscriptionRepository, Depends(get_subscription_repository)],
     user: Annotated[AuthenticatedUser, Depends(require_company_access)],
 ) -> SubscriptionResponse:
-    use_case = GetSubscription(repo)
-    dto = use_case.execute(company_id=company_id)
-    return SubscriptionResponse.model_validate(dto)
+    dto = GetSubscription(repo).execute(company_id=company_id)
+    return SubscriptionResponse.model_validate(dto.model_dump())
+
+
+@companies_router.post("/{company_id}/billing/checkout", response_model=CheckoutResultDTO, status_code=201)
+def checkout(
+    company_id: UUID,
+    request: CheckoutRequest,
+    subscriptions: Annotated[SubscriptionRepository, Depends(get_subscription_repository)],
+    payments: Annotated[PaymentRepository, Depends(get_payment_repository)],
+    user: Annotated[AuthenticatedUser, Depends(require_billing_manager)],
+) -> CheckoutResultDTO:
+    """Simulated checkout (demo): no real charge; only card brand + last4 are received."""
+    return Checkout(subscriptions, payments).execute(
+        company_id=company_id,
+        plan_id=request.plan_id,
+        billing_cycle=BillingCycle(request.billing_cycle),
+        method=PaymentMethod(request.method),
+        card_brand=request.card.brand if request.card else None,
+        card_last4=request.card.last4 if request.card else None,
+        card_holder=request.card.holder_name if request.card else None,
+        yape_code=request.yape_code,
+    )
+
+
+@companies_router.get("/{company_id}/billing/payments", response_model=list[PaymentDTO])
+def list_payments(
+    company_id: UUID,
+    payments: Annotated[PaymentRepository, Depends(get_payment_repository)],
+    user: Annotated[AuthenticatedUser, Depends(require_company_access)],
+) -> list[PaymentDTO]:
+    return ListPayments(payments).execute(company_id)
+
+
+@companies_router.post("/{company_id}/billing/cancel", response_model=SubscriptionResponse)
+def cancel_subscription(
+    company_id: UUID,
+    repo: Annotated[SubscriptionRepository, Depends(get_subscription_repository)],
+    user: Annotated[AuthenticatedUser, Depends(require_billing_manager)],
+) -> SubscriptionResponse:
+    dto = CancelSubscription(repo).execute(company_id)
+    return SubscriptionResponse.model_validate(dto.model_dump())
+
+
+@companies_router.post("/{company_id}/billing/resume", response_model=SubscriptionResponse)
+def resume_subscription(
+    company_id: UUID,
+    repo: Annotated[SubscriptionRepository, Depends(get_subscription_repository)],
+    user: Annotated[AuthenticatedUser, Depends(require_billing_manager)],
+) -> SubscriptionResponse:
+    dto = ResumeSubscription(repo).execute(company_id)
+    return SubscriptionResponse.model_validate(dto.model_dump())
 
 
 @companies_router.post("/{company_id}/billing/subscription", response_model=PlaceholderResponse)

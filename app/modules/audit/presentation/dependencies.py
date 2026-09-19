@@ -14,7 +14,7 @@ from app.shared.presentation.deps import get_db
 
 
 def get_audit_repository(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> AuditEventRepository:
     """Dependency provider for AuditEventRepository."""
     return SqlAuditEventRepository(db)

@@ -18,11 +18,14 @@ from app.modules.companies.application.use_cases.company import (
     UpdateCompany,
 )
 from app.modules.companies.application.use_cases.user import (
+    CreateCompanyUser,
     DisableUser,
     InviteUser,
     ListCompanyUsers,
+    UpdateCompanyUser,
     UpdateUserRole,
 )
+from app.modules.companies.domain.enums import UserStatus
 from app.modules.companies.domain.repositories import CompanyRepository, UserRepository
 from app.modules.companies.presentation.dependencies import (
     get_company_repository,
@@ -31,7 +34,9 @@ from app.modules.companies.presentation.dependencies import (
 )
 from app.modules.companies.presentation.schemas import (
     CreateCompanyRequest,
+    CreateCompanyUserRequest,
     InviteUserRequest,
+    UpdateCompanyUserRequest,
     UpdateCompanyRequest,
     UpdateUserRoleRequest,
 )
@@ -148,6 +153,44 @@ def list_company_users(
         company_id,
         offset=(pagination.page - 1) * pagination.size,
         limit=pagination.size,
+    )
+
+
+@users_router.post("/{company_id}/users", response_model=UserDTO, status_code=201)
+def create_company_user(
+    company_id: UUID,
+    request: CreateCompanyUserRequest,
+    _: AuthenticatedUser = Depends(require_company_access),
+    __: AuthenticatedUser = Depends(require_role("owner", "admin")),
+    repo: UserRepository = Depends(get_user_repository),
+) -> UserDTO:
+    """Create a user that signs in with a username (sellers / admins)."""
+    return CreateCompanyUser(repo).execute(
+        company_id,
+        full_name=request.full_name,
+        username=request.username,
+        password=request.password,
+        role=parse_role(request.role),
+    )
+
+
+@users_router.patch("/{company_id}/users/{user_id}", response_model=UserDTO)
+def update_company_user(
+    company_id: UUID,
+    user_id: UUID,
+    request: UpdateCompanyUserRequest,
+    current: AuthenticatedUser = Depends(require_company_access),
+    __: AuthenticatedUser = Depends(require_role("owner", "admin")),
+    repo: UserRepository = Depends(get_user_repository),
+) -> UserDTO:
+    """Rename, reset the password or activate/disable a company user."""
+    return UpdateCompanyUser(repo).execute(
+        company_id,
+        user_id,
+        acting_user_id=current.user_id,
+        full_name=request.full_name,
+        password=request.password,
+        status=UserStatus(request.status) if request.status else None,
     )
 
 

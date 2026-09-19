@@ -1,10 +1,12 @@
 """Products module — application output DTOs."""
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.modules.products.domain.entities import Category, Product
 
@@ -43,6 +45,10 @@ class ProductDTO(BaseModel):
     safety_stock: int
     reorder_point: int
     is_active: bool
+    barcode: str | None = None
+    image_url: str | None = None
+    custom_attributes: dict[str, Any] = Field(default_factory=dict)
+    last_cost: Decimal | None = None
 
     @classmethod
     def from_entity(cls, product: Product) -> ProductDTO:
@@ -62,4 +68,95 @@ class ProductDTO(BaseModel):
             safety_stock=product.safety_stock,
             reorder_point=product.reorder_point,
             is_active=product.is_active,
+            barcode=product.barcode,
+            image_url=product.image_url,
+            custom_attributes=dict(product.custom_attributes or {}),
+            last_cost=product.last_cost.amount if product.last_cost else None,
         )
+
+
+# --- Smart import ------------------------------------------------------------
+class ImportRowError(BaseModel):
+    row: int
+    message: str
+
+
+class ImportProductsResultDTO(BaseModel):
+    created: int
+    updated: int
+    errors: list[ImportRowError]
+    categories_created: int = 0
+
+
+# --- Product 360 timeline ----------------------------------------------------
+TimelineKind = Literal["sale", "restock", "adjustment", "lost_sale"]
+
+
+class TimelineEventDTO(BaseModel):
+    id: UUID
+    kind: TimelineKind
+    occurred_at: datetime
+    quantity: int
+    # sale
+    unit_price: Decimal | None = None
+    total: Decimal | None = None
+    order_id: UUID | None = None
+    order_number: int | None = None
+    batch_id: UUID | None = None
+    seller_name: str | None = None
+    # restock
+    unit_cost: Decimal | None = None
+    supplier_id: UUID | None = None
+    supplier_name: str | None = None
+    document_number: str | None = None
+    purchase_id: UUID | None = None
+    # adjustment / other movements
+    movement_type: str | None = None
+    signed_quantity: int | None = None
+    reason: str | None = None
+    reference_type: str | None = None
+    reference_id: UUID | None = None
+    # lost sale (quiebre)
+    requested_quantity: int | None = None
+    available_quantity: int | None = None
+    source: str | None = None
+
+
+class TimelineStatsDTO(BaseModel):
+    stock_on_hand: int
+    units_sold_30d: int
+    units_sold_90d: int
+    units_sold_365d: int
+    revenue_365d: Decimal
+    avg_price_365d: Decimal | None
+    gross_margin_pct: float | None
+    coverage_days: float | None
+    lost_sale_attempts: int
+    lost_units: int
+    lost_sale_attempts_30d: int
+    restock_count: int
+    last_restock_at: date | None
+    last_sale_at: date | None
+
+
+class StockPointDTO(BaseModel):
+    date: date
+    stock: int
+    inbound: int
+    outbound: int
+
+
+class MonthlySalesPointDTO(BaseModel):
+    month: str  # yyyy-mm
+    units: int
+    revenue: Decimal
+
+
+class ProductTimelineDTO(BaseModel):
+    product: ProductDTO
+    category_path: list[str]
+    stats: TimelineStatsDTO
+    events: list[TimelineEventDTO]
+    events_truncated: bool
+    stock_series: list[StockPointDTO]
+    monthly_sales: list[MonthlySalesPointDTO]

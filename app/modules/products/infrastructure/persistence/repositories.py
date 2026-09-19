@@ -82,6 +82,17 @@ class SqlProductRepository:
         ).scalar_one_or_none()
         return product_to_entity(model) if model else None
 
+    def get_by_barcode(self, company_id: UUID, barcode: str) -> Product | None:
+        cleaned = barcode.strip()
+        if not cleaned:
+            return None
+        model = self._session.execute(
+            select(ProductModel)
+            .where(ProductModel.company_id == company_id, ProductModel.barcode == cleaned)
+            .limit(1)
+        ).scalar_one_or_none()
+        return product_to_entity(model) if model else None
+
     def list_by_company(
         self, company_id: UUID, offset: int = 0, limit: int = 50
     ) -> list[Product]:
@@ -124,6 +135,10 @@ class SqlProductRepository:
         model.safety_stock = product.safety_stock
         model.reorder_point = product.reorder_point
         model.is_active = product.is_active
+        model.barcode = product.barcode
+        model.image_url = product.image_url
+        model.custom_attributes = dict(product.custom_attributes or {})
+        model.last_cost = product.last_cost.amount if product.last_cost else model.last_cost
         self._session.flush()
         return product_to_entity(model)
 

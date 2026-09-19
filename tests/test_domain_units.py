@@ -205,11 +205,11 @@ class TestProductInvariants:
         assert p.needs_reorder(on_hand=0) is False
 
     def test_negative_lead_time_raises(self) -> None:
-        with pytest.raises(InvalidProductError, match="lead_time_days"):
+        with pytest.raises(InvalidProductError, match="tiempo de reposición"):
             self._make_product(lead_time_days=-1)
 
     def test_negative_safety_stock_raises(self) -> None:
-        with pytest.raises(InvalidProductError, match="safety_stock"):
+        with pytest.raises(InvalidProductError, match="stock de seguridad"):
             self._make_product(safety_stock=-1)
 
 

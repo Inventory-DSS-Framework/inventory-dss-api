@@ -16,14 +16,14 @@ from app.shared.presentation.deps import get_db
 
 
 def get_stored_file_repository(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> StoredFileRepository:
     """Dependency provider for StoredFileRepository."""
     return SqlStoredFileRepository(db)
 
 
 def get_storage_port(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> StoragePort:
     """Dependency provider for StoragePort."""
     return make_storage(db)

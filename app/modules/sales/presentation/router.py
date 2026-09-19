@@ -1,22 +1,44 @@
 """Sales module — HTTP routers wired to use cases.
 
-Sales CRUD (create/bulk/list/get/delete) and batch create/list/get are implemented.
-update_sale and batch deletion are not implemented because the domain ports do not
-expose those operations; analytics endpoints (history, summary, timeseries) belong to
-later blocks and stay as placeholders.
+* `router` (/sales): legacy per-line sales CRUD, also used by imported history.
+* `batches_router` (/sales/batches): import batches.
+* `orders_router` (/sales-orders): the POS — tickets, catalog lookup, summary, void.
+* `lost_sales_router` (/lost-sales): sale attempts blocked by missing stock.
 """
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
-from app.modules.sales.application.dtos import SaleDTO, SalesBatchDTO
+from app.modules.companies.domain.repositories import UserRepository
+from app.modules.sales.application.dtos import (
+    CatalogProductDTO,
+    LostSaleDTO,
+    SaleDTO,
+    SalesBatchDTO,
+    SalesOrderDTO,
+    SalesOrderPageDTO,
+    SalesSummaryDTO,
+)
 from app.modules.sales.application.use_cases.batch import (
     CreateSalesBatch,
     GetSalesBatch,
     ListSalesBatches,
+)
+from app.modules.sales.application.use_cases.order import (
+    CreateSalesOrder,
+    GetSalesOrder,
+    GetSalesSummary,
+    ListLostSales,
+    ListSalesOrders,
+    LookupProductByCode,
+    RecordLostSale,
+    SalesOrderReadModel,
+    SearchCatalog,
+    VoidSalesOrder,
 )
 from app.modules.sales.application.use_cases.sale import (
     CreateSale,
@@ -27,18 +49,34 @@ from app.modules.sales.application.use_cases.sale import (
     ListSalesByProduct,
 )
 from app.modules.sales.domain.repositories import (
+    InvoiceIssuer,
+    LostSaleRepository,
+    ProductCatalog,
     SaleRepository,
     SalesBatchRepository,
+    SalesOrderRepository,
+    StockLedger,
 )
 from app.modules.sales.presentation.dependencies import (
+    get_invoice_issuer,
+    get_lost_sale_repository,
+    get_product_catalog,
     get_sale_repository,
     get_sales_batch_repository,
+    get_sales_order_read_model,
+    get_sales_order_repository,
+    get_seller_directory,
+    get_stock_ledger,
 )
 from app.modules.sales.presentation.schemas import (
     BulkSalesRequest,
     CreateSaleRequest,
     CreateSalesBatchRequest,
+    CreateSalesOrderRequest,
+    RecordLostSaleRequest,
+    VoidSalesOrderRequest,
 )
+from app.shared.domain.errors import ForbiddenError
 from app.shared.presentation.deps import (
     AuthenticatedUser,
     get_pagination,
@@ -52,12 +90,29 @@ from app.shared.presentation.schemas import (
 
 router = APIRouter()
 batches_router = APIRouter()
+orders_router = APIRouter()
+lost_sales_router = APIRouter()
+
+
+def _seller_name(users: UserRepository, current: AuthenticatedUser) -> str:
+    user = users.get_by_id(current.user_id)
+    if user is None:
+        return ""
+    return user.full_name or user.login
+
+
+def _own_scope(current: AuthenticatedUser, requested: UUID | None) -> UUID | None:
+    """Sellers only ever see their own tickets."""
+    return current.user_id if current.role == "seller" else requested
 
 
 # --- Sales -------------------------------------------------------------------
 @router.get("", response_model=list[SaleDTO])
 def list_sales(
     company_id: UUID,
+    origin: Literal["pos", "imported"] | None = Query(
+        None, description="pos = lines of POS tickets; imported = history without a ticket"
+    ),
     pagination: PaginationParams = Depends(get_pagination),
     _: AuthenticatedUser = Depends(require_company_access),
     repo: SaleRepository = Depends(get_sale_repository),
@@ -66,6 +121,7 @@ def list_sales(
         company_id,
         offset=(pagination.page - 1) * pagination.size,
         limit=pagination.size,
+        origin=origin,
     )
 
 
@@ -112,9 +168,9 @@ def get_sales_by_product(
 
 @router.get("/summary", response_model=PlaceholderResponse)
 def get_sales_summary(company_id: UUID) -> PlaceholderResponse:
-    # TODO(kpis/dashboard): sales aggregation.
+    # Superseded by GET /sales-orders/summary (POS tickets).
     return PlaceholderResponse(
-        message="Endpoint scaffold ready", module="sales", action="get_sales_summary"
+        message="Use /sales-orders/summary", module="sales", action="get_sales_summary"
     )
 
 
@@ -180,3 +236,161 @@ def get_sales_batch(
     repo: SalesBatchRepository = Depends(get_sales_batch_repository),
 ) -> SalesBatchDTO:
     return GetSalesBatch(repo).execute(batch_id)
+
+
+# --- POS: sales orders ---------------------------------------------------------
+@orders_router.get("", response_model=SalesOrderPageDTO)
+def list_sales_orders(
+    company_id: UUID,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    seller_id: UUID | None = None,
+    document_type: Literal["boleta", "factura", "nota_venta"] | None = None,
+    status: Literal["completed", "voided"] | None = None,
+    q: str | None = None,
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=200),
+    current: AuthenticatedUser = Depends(require_company_access),
+    read: SalesOrderReadModel = Depends(get_sales_order_read_model),
+) -> SalesOrderPageDTO:
+    return ListSalesOrders(read).execute(
+        company_id,
+        date_from=date_from,
+        date_to=date_to,
+        seller_id=_own_scope(current, seller_id),
+        document_type=document_type,
+        status=status,
+        q=q,
+        page=page,
+        size=size,
+    )
+
+
+@orders_router.post("", response_model=SalesOrderDTO, status_code=201)
+def create_sales_order(
+    company_id: UUID,
+    request: CreateSalesOrderRequest,
+    current: AuthenticatedUser = Depends(require_company_access),
+    orders: SalesOrderRepository = Depends(get_sales_order_repository),
+    catalog: ProductCatalog = Depends(get_product_catalog),
+    stock: StockLedger = Depends(get_stock_ledger),
+    issuer: InvoiceIssuer = Depends(get_invoice_issuer),
+    read: SalesOrderReadModel = Depends(get_sales_order_read_model),
+    users: UserRepository = Depends(get_seller_directory),
+) -> SalesOrderDTO:
+    return CreateSalesOrder(orders, catalog, stock, issuer, read).execute(
+        company_id,
+        seller_id=current.user_id,
+        seller_name=_seller_name(users, current),
+        items=[item.model_dump(mode="json") for item in request.items],
+        document_type=request.document_type,
+        client_doc_type=request.client_doc_type,
+        client_doc_number=request.client_doc_number,
+        client_name=request.client_name,
+        client_address=request.client_address,
+        payment_method=request.payment_method,
+        amount_received=request.amount_received,
+        notes=request.notes,
+    )
+
+
+@orders_router.get("/summary", response_model=SalesSummaryDTO)
+def get_sales_orders_summary(
+    company_id: UUID,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    seller_id: UUID | None = None,
+    current: AuthenticatedUser = Depends(require_company_access),
+    read: SalesOrderReadModel = Depends(get_sales_order_read_model),
+) -> SalesSummaryDTO:
+    return GetSalesSummary(read).execute(
+        company_id, date_from=date_from, date_to=date_to, seller_id=_own_scope(current, seller_id)
+    )
+
+
+@orders_router.get("/lookup", response_model=CatalogProductDTO)
+def lookup_product(
+    company_id: UUID,
+    code: str = Query(..., min_length=1, description="Barcode or SKU (exact, case-insensitive)"),
+    _: AuthenticatedUser = Depends(require_company_access),
+    catalog: ProductCatalog = Depends(get_product_catalog),
+) -> CatalogProductDTO:
+    return LookupProductByCode(catalog).execute(company_id, code)
+
+
+@orders_router.get("/catalog", response_model=list[CatalogProductDTO])
+def search_catalog(
+    company_id: UUID,
+    q: str = "",
+    limit: int = Query(20, ge=1, le=200),
+    _: AuthenticatedUser = Depends(require_company_access),
+    catalog: ProductCatalog = Depends(get_product_catalog),
+) -> list[CatalogProductDTO]:
+    return SearchCatalog(catalog).execute(company_id, q, limit)
+
+
+@orders_router.get("/{order_id}", response_model=SalesOrderDTO)
+def get_sales_order(
+    company_id: UUID,
+    order_id: UUID,
+    current: AuthenticatedUser = Depends(require_company_access),
+    read: SalesOrderReadModel = Depends(get_sales_order_read_model),
+) -> SalesOrderDTO:
+    return GetSalesOrder(read).execute(company_id, order_id, _own_scope(current, None))
+
+
+@orders_router.post("/{order_id}/void", response_model=SalesOrderDTO)
+def void_sales_order(
+    company_id: UUID,
+    order_id: UUID,
+    request: VoidSalesOrderRequest | None = None,
+    current: AuthenticatedUser = Depends(require_company_access),
+    orders: SalesOrderRepository = Depends(get_sales_order_repository),
+    stock: StockLedger = Depends(get_stock_ledger),
+    issuer: InvoiceIssuer = Depends(get_invoice_issuer),
+    read: SalesOrderReadModel = Depends(get_sales_order_read_model),
+    users: UserRepository = Depends(get_seller_directory),
+) -> SalesOrderDTO:
+    if current.role not in ("owner", "admin"):
+        raise ForbiddenError(message="Solo el propietario o un administrador puede anular ventas.")
+    return VoidSalesOrder(orders, stock, issuer, read).execute(
+        company_id,
+        order_id,
+        voided_by=_seller_name(users, current),
+        reason=request.reason if request else "",
+    )
+
+
+# --- Lost sales (quiebres) -------------------------------------------------------
+@lost_sales_router.post("", response_model=LostSaleDTO, status_code=201)
+def record_lost_sale(
+    company_id: UUID,
+    request: RecordLostSaleRequest,
+    current: AuthenticatedUser = Depends(require_company_access),
+    repo: LostSaleRepository = Depends(get_lost_sale_repository),
+    catalog: ProductCatalog = Depends(get_product_catalog),
+    users: UserRepository = Depends(get_seller_directory),
+) -> LostSaleDTO:
+    return RecordLostSale(repo, catalog).execute(
+        company_id,
+        product_id=request.product_id,
+        requested_quantity=request.requested_quantity,
+        available_quantity=request.available_quantity,
+        seller_id=current.user_id,
+        seller_name=_seller_name(users, current),
+        source=request.source,
+    )
+
+
+@lost_sales_router.get("", response_model=list[LostSaleDTO])
+def list_lost_sales(
+    company_id: UUID,
+    product_id: UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    _: AuthenticatedUser = Depends(require_company_access),
+    read: SalesOrderReadModel = Depends(get_sales_order_read_model),
+) -> list[LostSaleDTO]:
+    return ListLostSales(read).execute(
+        company_id, product_id=product_id, date_from=date_from, date_to=date_to
+    )

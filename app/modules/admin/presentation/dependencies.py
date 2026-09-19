@@ -14,7 +14,7 @@ from app.shared.presentation.deps import get_db
 
 
 def get_system_settings_repository(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> SystemSettingsRepository:
     """Dependency provider for SystemSettingsRepository."""
     return SqlSystemSettingsRepository(db)

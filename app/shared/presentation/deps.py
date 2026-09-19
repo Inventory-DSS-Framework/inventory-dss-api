@@ -1,6 +1,6 @@
 from typing import Callable
 from uuid import UUID
-from fastapi import Depends, Query
+from fastapi import Depends, Query, Request
 from pydantic import BaseModel
 from app.shared.infrastructure.database.database import get_db
 from app.shared.infrastructure.security.jwt import decode_token
@@ -46,10 +46,32 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> AuthenticatedUser:
         role=role
     )
 
-def require_company_access(company_id: UUID, current_user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+# Sellers (cashiers created by the admin) only run the till: they can sell and look
+# products/stock up, nothing else. Resource = first path segment after /companies/{id}.
+SELLER_WRITE_RESOURCES = frozenset({"sales", "sales-orders", "invoices", "lost-sales"})
+SELLER_READ_RESOURCES = frozenset(
+    {"", "products", "product-categories", "inventory", "custom-fields", "preferences", "notifications", "billing"}
+)
+
+
+def require_company_access(
+    company_id: UUID,
+    request: Request,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
     """Validates that the current user has access to the requested company_id."""
     if current_user.company_id != company_id:
         raise ForbiddenError(message="You do not have access to this company's resources.")
+    if current_user.role == "seller":
+        marker = f"/companies/{company_id}"
+        path = request.url.path
+        rest = path.split(marker, 1)[1].strip("/") if marker in path else ""
+        resource = rest.split("/", 1)[0]
+        allowed = resource in SELLER_WRITE_RESOURCES or (
+            request.method == "GET" and resource in SELLER_READ_RESOURCES
+        )
+        if not allowed:
+            raise ForbiddenError(message="Tu usuario de ventas no tiene acceso a este módulo.")
     return current_user
 
 def require_role(*allowed_roles: str) -> Callable[[AuthenticatedUser], AuthenticatedUser]:

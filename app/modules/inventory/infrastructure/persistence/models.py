@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.infrastructure.database import Base, TimestampMixin, UUIDMixin
@@ -19,6 +20,10 @@ class InventoryMovementModel(Base, UUIDMixin, TimestampMixin):
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Valuation + traceability: cost of the units moved and the document that moved them.
+    unit_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    reference_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    reference_id: Mapped[UUID | None] = mapped_column(index=True, nullable=True)
 
 
 class StockSnapshotModel(Base, UUIDMixin, TimestampMixin):

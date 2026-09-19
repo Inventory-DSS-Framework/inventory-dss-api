@@ -44,7 +44,8 @@ class CompanyDTO(BaseModel):
 class UserDTO(BaseModel):
     id: UUID
     company_id: UUID
-    email: str
+    email: str | None
+    username: str | None
     full_name: str
     role: str
     status: str
@@ -56,7 +57,8 @@ class UserDTO(BaseModel):
         return cls(
             id=user.id,
             company_id=user.company_id,
-            email=user.email.value,
+            email=user.email.value if user.email else None,
+            username=user.username,
             full_name=user.full_name,
             role=user.role.value,
             status=user.status.value,

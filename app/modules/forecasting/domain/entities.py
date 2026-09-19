@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from app.modules.forecasting.domain.enums import RunStatus
@@ -48,6 +49,23 @@ class ForecastRun:
     completed_at: datetime | None = None
     error_message: str | None = None
     id: UUID | None = None
+    # How the run was scoped ({"type": "recent_sales", "months": 12, ...}); the engine's
+    # per-product diagnostics and the run summary live under scope["_meta"].
+    scope: dict[str, Any] | None = None
+    product_ids: list[str] | None = None
+    frequency: str | None = None
+    created_at: datetime | None = None
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        return dict((self.scope or {}).get("_meta") or {})
+
+    def set_meta(self, **values: Any) -> None:
+        scope = dict(self.scope or {"type": "dataset"})
+        meta = dict(scope.get("_meta") or {})
+        meta.update(values)
+        scope["_meta"] = meta
+        self.scope = scope
 
     def _transition(self, target: RunStatus) -> None:
         """Validate and perform a state transition."""

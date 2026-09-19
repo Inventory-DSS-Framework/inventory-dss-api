@@ -1,18 +1,21 @@
 """Forecasting module — run execution (consumes the FTGM engine).
 
 Orchestrates: start the run, fetch the prepared dataset series, call the engine,
-persist results + metrics, and complete the run. Any failure marks the run as failed
-with the error message (the run state machine guarantees valid transitions).
+persist results + metrics, record the engine diagnostics and a run summary, and complete
+the run. Any failure marks the run as failed with the error message (the run state
+machine guarantees valid transitions).
 """
 from __future__ import annotations
 
+from datetime import date
+from typing import Any
 from uuid import UUID
 
 from app.modules.data_preparation.domain.repositories import (
     PreparedDatasetRepository,
 )
 from app.modules.forecasting.application.dtos import ForecastRunDTO
-from app.modules.forecasting.application.ports import ForecastEnginePort
+from app.modules.forecasting.application.ports import ForecastEnginePort, ProductForecast
 from app.modules.forecasting.domain.entities import ForecastMetrics, ForecastResult
 from app.modules.forecasting.domain.exceptions import ForecastRunNotFoundError
 from app.modules.forecasting.domain.repositories import (
@@ -20,6 +23,34 @@ from app.modules.forecasting.domain.repositories import (
     ForecastResultRepository,
     ForecastRunRepository,
 )
+
+
+def summarize(forecasts: list[ProductForecast]) -> dict[str, Any]:
+    """Run-level summary shown in the runs list."""
+    total = sum(float(p.predicted_demand) for f in forecasts for p in f.points)
+    next_period = sum(float(f.points[0].predicted_demand) for f in forecasts if f.points)
+    models: dict[str, int] = {}
+    freqs: dict[str, int] = {}
+    for f in forecasts:
+        if f.status != "skipped":
+            models[f.model_used] = models.get(f.model_used, 0) + 1
+        if f.frequency:
+            freqs[f.frequency] = freqs.get(f.frequency, 0) + 1
+    mapes = [
+        float(f.diagnostics["holdout"]["mape"])
+        for f in forecasts
+        if isinstance(f.diagnostics.get("holdout"), dict) and f.diagnostics["holdout"].get("mape") is not None
+    ]
+    return {
+        "total_forecast_units": round(total, 1),
+        "next_period_units": round(next_period, 1),
+        "products_ok": sum(1 for f in forecasts if f.status == "ok"),
+        "products_fallback": sum(1 for f in forecasts if f.status == "fallback"),
+        "products_skipped": sum(1 for f in forecasts if f.status == "skipped"),
+        "models": models,
+        "frequencies": freqs,
+        "median_holdout_mape": round(sorted(mapes)[len(mapes) // 2], 2) if mapes else None,
+    }
 
 
 class ExecuteForecastRun:
@@ -53,10 +84,13 @@ class ExecuteForecastRun:
             if dataset is None:
                 raise ValueError(f"Prepared dataset '{run.dataset_id}' not found")
 
+            as_of_raw = run.meta.get("as_of")
             forecasts = self._engine.forecast(
                 series=dataset.series,
                 horizon_days=run.horizon_days,
                 model_name=run.model_name,
+                frequency=run.frequency,
+                as_of=date.fromisoformat(as_of_raw) if as_of_raw else None,
             )
 
             self._results.add_bulk(
@@ -91,8 +125,24 @@ class ExecuteForecastRun:
                 ]
             )
 
+            # The metrics table has no room for the engine's rich diagnostics, so they are
+            # kept with the run (scope["_meta"]) — the result view explains every decision.
+            run.set_meta(
+                summary=summarize(forecasts),
+                diagnostics={
+                    str(f.product_id): {
+                        **f.diagnostics,
+                        "frequency": f.frequency or f.diagnostics.get("frequency"),
+                        "period": f.period or f.diagnostics.get("period"),
+                        "warnings": f.warnings,
+                    }
+                    for f in forecasts
+                },
+            )
+            if run.product_ids is None:
+                run.product_ids = [str(f.product_id) for f in forecasts]
             run.complete()
             return ForecastRunDTO.from_entity(self._runs.update(run))
         except Exception as exc:  # noqa: BLE001 - any failure must fail the run
-            run.fail(str(exc))
+            run.fail(str(exc)[:1000])
             return ForecastRunDTO.from_entity(self._runs.update(run))

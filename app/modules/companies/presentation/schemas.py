@@ -4,6 +4,8 @@ Responses reuse the application DTOs (CompanyDTO, UserDTO) as response models.
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -33,3 +35,16 @@ class InviteUserRequest(BaseModel):
 
 class UpdateUserRoleRequest(BaseModel):
     role: str
+
+
+class CreateCompanyUserRequest(BaseModel):
+    full_name: str
+    username: str
+    password: str
+    role: Literal["seller", "admin"] = "seller"
+
+
+class UpdateCompanyUserRequest(BaseModel):
+    full_name: str | None = None
+    password: str | None = None
+    status: Literal["active", "disabled"] | None = None

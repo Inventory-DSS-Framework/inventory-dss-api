@@ -104,11 +104,11 @@ class ListSales:
         self._sales = sales
 
     def execute(
-        self, company_id: UUID, offset: int = 0, limit: int = 50
+        self, company_id: UUID, offset: int = 0, limit: int = 50, origin: str | None = None
     ) -> list[SaleDTO]:
         return [
             SaleDTO.from_entity(s)
-            for s in self._sales.list_by_company(company_id, offset, limit)
+            for s in self._sales.list_by_company(company_id, offset, limit, origin)
         ]
 
 

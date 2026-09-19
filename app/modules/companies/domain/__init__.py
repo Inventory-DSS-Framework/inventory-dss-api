@@ -13,6 +13,7 @@ from app.modules.companies.domain.exceptions import (
     InvalidUserStateError,
     UserAlreadyExistsError,
     UserNotFoundError,
+    UsernameAlreadyExistsError,
 )
 from app.modules.companies.domain.repositories import CompanyRepository, UserRepository
 
@@ -28,6 +29,7 @@ __all__ = [
     "User",
     "UserAlreadyExistsError",
     "UserNotFoundError",
+    "UsernameAlreadyExistsError",
     "UserRepository",
     "UserRole",
     "UserStatus",

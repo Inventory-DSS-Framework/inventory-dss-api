@@ -5,7 +5,8 @@ from pydantic import Field, field_validator
 class Settings(BaseSettings):
     app_name: str = "Inventory DSS API"
     app_env: str = "development"
-    app_debug: bool = True
+    # When true SQLAlchemy echoes every SQL statement — very noisy, keep it opt-in.
+    app_debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
     database_url: str = "postgresql+psycopg://user:password@localhost:5432/inventory_dss"

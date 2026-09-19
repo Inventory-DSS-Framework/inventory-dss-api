@@ -30,6 +30,10 @@ def run_to_entity(model: ForecastRunModel) -> ForecastRun:
         started_at=model.started_at,
         completed_at=model.completed_at,
         error_message=model.error_message,
+        scope=dict(model.scope) if model.scope else None,
+        product_ids=list(model.product_ids) if model.product_ids else None,
+        frequency=model.frequency,
+        created_at=model.created_at,
     )
 
 
@@ -44,6 +48,9 @@ def run_to_model(entity: ForecastRun) -> ForecastRunModel:
         started_at=entity.started_at,
         completed_at=entity.completed_at,
         error_message=entity.error_message,
+        scope=entity.scope,
+        product_ids=entity.product_ids,
+        frequency=entity.frequency,
     )
 
 
@@ -80,6 +87,7 @@ def _history_to_dict(h: HistoryPoint) -> dict[str, Any]:
         "cleaned": str(h.cleaned),
         "fitted": str(h.fitted) if h.fitted is not None else None,
         "is_stockout": h.is_stockout,
+        "is_outlier": h.is_outlier,
     }
 
 
@@ -92,6 +100,7 @@ def _history_from_dict(data: dict[str, Any]) -> HistoryPoint:
             Decimal(str(data["fitted"])) if data.get("fitted") is not None else None
         ),
         is_stockout=bool(data.get("is_stockout", False)),
+        is_outlier=bool(data.get("is_outlier", False)),
     )
 
 

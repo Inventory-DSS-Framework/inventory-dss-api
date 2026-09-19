@@ -14,7 +14,7 @@ from app.shared.presentation.deps import get_db
 
 
 def get_dashboard_repository(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> DashboardWidgetRepository:
     """Dependency provider for DashboardWidgetRepository."""
     return SqlDashboardWidgetRepository(db)

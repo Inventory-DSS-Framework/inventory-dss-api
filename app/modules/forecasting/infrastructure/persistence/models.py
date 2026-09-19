@@ -23,6 +23,10 @@ class ForecastRunModel(Base, UUIDMixin, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # How the run was scoped (e.g. {"type": "recent_sales", "months": 6}) and what it covered.
+    scope: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    product_ids: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    frequency: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class ForecastResultModel(Base, UUIDMixin, TimestampMixin):

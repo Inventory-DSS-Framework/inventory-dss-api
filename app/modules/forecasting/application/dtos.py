@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -24,10 +25,21 @@ class ForecastRunDTO(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     error_message: str | None
+    created_at: datetime | None = None
+    # Scope (without internal metadata), what it covered and how it went.
+    scope: dict[str, Any] | None = None
+    scope_description: str | None = None
+    frequency: str | None = None
+    product_count: int = 0
+    as_of: date | None = None
+    summary: dict[str, Any] | None = None
 
     @classmethod
     def from_entity(cls, run: ForecastRun) -> ForecastRunDTO:
         assert run.id is not None
+        meta = run.meta
+        scope = {k: v for k, v in (run.scope or {}).items() if k != "_meta"} or None
+        as_of = meta.get("as_of")
         return cls(
             id=run.id,
             company_id=run.company_id,
@@ -38,6 +50,14 @@ class ForecastRunDTO(BaseModel):
             started_at=run.started_at,
             completed_at=run.completed_at,
             error_message=run.error_message,
+            created_at=run.created_at,
+            scope=scope,
+            scope_description=meta.get("description")
+            or ("Dataset preparado (CSV)" if run.dataset_id and not scope else None),
+            frequency=run.frequency,
+            product_count=len(run.product_ids or []) or int(meta.get("product_count") or 0),
+            as_of=date.fromisoformat(as_of) if as_of else None,
+            summary=meta.get("summary"),
         )
 
 
@@ -54,6 +74,7 @@ class HistoryPointDTO(BaseModel):
     cleaned: Decimal
     fitted: Decimal | None
     is_stockout: bool
+    is_outlier: bool = False
 
 
 class ForecastResultDTO(BaseModel):
@@ -88,6 +109,7 @@ class ForecastResultDTO(BaseModel):
                     cleaned=h.cleaned,
                     fitted=h.fitted,
                     is_stockout=h.is_stockout,
+                    is_outlier=h.is_outlier,
                 )
                 for h in result.history
             ],

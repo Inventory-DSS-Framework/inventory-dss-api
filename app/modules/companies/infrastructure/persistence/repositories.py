@@ -92,6 +92,13 @@ class SqlUserRepository:
         ).scalar_one_or_none()
         return user_to_entity(model) if model else None
 
+    def get_by_username(self, username: str) -> User | None:
+        normalized = username.strip().lower()
+        model = self._session.execute(
+            select(UserModel).where(UserModel.username == normalized)
+        ).scalar_one_or_none()
+        return user_to_entity(model) if model else None
+
     def list_by_company(
         self, company_id: UUID, offset: int = 0, limit: int = 50
     ) -> list[User]:
@@ -115,7 +122,8 @@ class SqlUserRepository:
         if model is None:
             raise UserNotFoundError(str(user.id))
         model.company_id = user.company_id
-        model.email = user.email.value
+        model.email = user.email.value if user.email else None
+        model.username = user.username
         model.full_name = user.full_name
         model.hashed_password = user.hashed_password
         model.role = user.role.value

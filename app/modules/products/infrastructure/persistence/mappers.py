@@ -44,6 +44,10 @@ def product_to_entity(model: ProductModel) -> Product:
         safety_stock=model.safety_stock,
         reorder_point=model.reorder_point,
         is_active=model.is_active,
+        barcode=model.barcode,
+        image_url=model.image_url,
+        custom_attributes=dict(model.custom_attributes or {}),
+        last_cost=Money(model.last_cost, model.currency) if model.last_cost is not None else None,
     )
 
 
@@ -63,4 +67,8 @@ def product_to_model(entity: Product) -> ProductModel:
         safety_stock=entity.safety_stock,
         reorder_point=entity.reorder_point,
         is_active=entity.is_active,
+        barcode=entity.barcode,
+        image_url=entity.image_url,
+        custom_attributes=dict(entity.custom_attributes or {}),
+        last_cost=entity.last_cost.amount if entity.last_cost else None,
     )

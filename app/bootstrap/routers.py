@@ -5,6 +5,7 @@ from app.modules.auth.presentation.router import router as auth_router
 from app.modules.companies.presentation.router import router as companies_router, users_router as companies_users_router
 from app.modules.products.presentation.router import router as products_router, categories_router
 from app.modules.sales.presentation.router import router as sales_router, batches_router as sales_batches_router
+from app.modules.sales.presentation.router import orders_router as sales_orders_router, lost_sales_router
 from app.modules.inventory.presentation.router import router as inventory_router
 from app.modules.ingestion.presentation.router import router as ingestion_router
 from app.modules.data_preparation.presentation.router import router as data_preparation_router
@@ -19,6 +20,10 @@ from app.modules.audit.presentation.router import router as audit_router, activi
 from app.modules.validation.presentation.router import router as validation_router
 from app.modules.admin.presentation.router import router as admin_router
 from app.modules.billing.presentation.router import router as billing_router, companies_router as companies_billing_router
+from app.modules.suppliers.presentation.router import router as suppliers_router
+from app.modules.purchases.presentation.router import router as purchases_router
+from app.modules.invoicing.presentation.router import router as invoicing_router
+from app.modules.custom_fields.presentation.router import router as custom_fields_router, preferences_router
 
 api_router = APIRouter()
 
@@ -45,6 +50,8 @@ api_router.include_router(categories_router, prefix="/companies/{company_id}/pro
 # Sales
 api_router.include_router(sales_router, prefix="/companies/{company_id}/sales", tags=["Sales"])
 api_router.include_router(sales_batches_router, prefix="/companies/{company_id}/sales/batches", tags=["Sales Batches"])
+api_router.include_router(sales_orders_router, prefix="/companies/{company_id}/sales-orders", tags=["POS"])
+api_router.include_router(lost_sales_router, prefix="/companies/{company_id}/lost-sales", tags=["POS"])
 
 # Inventory
 api_router.include_router(inventory_router, prefix="/companies/{company_id}/inventory", tags=["Inventory", "Inventory Movements", "Inventory Snapshots", "Replenishments", "Stockouts"])
@@ -86,3 +93,16 @@ api_router.include_router(validation_router, prefix="/companies/{company_id}/val
 
 # Billing (companies)
 api_router.include_router(companies_billing_router, prefix="/companies", tags=["Billing"])
+
+# Suppliers
+api_router.include_router(suppliers_router, prefix="/companies/{company_id}/suppliers", tags=["Suppliers"])
+
+# Purchases
+api_router.include_router(purchases_router, prefix="/companies/{company_id}/purchases", tags=["Purchases"])
+
+# Invoicing (Boleta / Factura)
+api_router.include_router(invoicing_router, prefix="/companies/{company_id}/invoices", tags=["Invoicing"])
+
+# Custom fields (user-defined columns) + saved UI preferences
+api_router.include_router(custom_fields_router, prefix="/companies/{company_id}/custom-fields", tags=["Custom Fields"])
+api_router.include_router(preferences_router, prefix="/companies/{company_id}/preferences", tags=["Custom Fields"])

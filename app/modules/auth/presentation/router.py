@@ -55,7 +55,9 @@ def login(
     request: LoginRequest,
     users: UserRepository = Depends(get_user_repository),
 ) -> TokenDTO:
-    return Login(users).execute(email=request.email, password=request.password)
+    return Login(users).execute(
+        identifier=request.identifier or request.email or "", password=request.password
+    )
 
 
 @router.post("/refresh-token", response_model=TokenDTO)

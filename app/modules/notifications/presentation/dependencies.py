@@ -14,7 +14,7 @@ from app.shared.presentation.deps import get_db
 
 
 def get_notification_repository(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> NotificationRepository:
     """Dependency provider for NotificationRepository."""
     return SqlNotificationRepository(db)

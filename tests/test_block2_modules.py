@@ -199,7 +199,12 @@ class FakeEngine:
         self._fail = fail
 
     def forecast(
-        self, *, series: list[PreparedTimeSeries], horizon_days: int, model_name: str
+        self,
+        *,
+        series: list[PreparedTimeSeries],
+        horizon_days: int,
+        model_name: str,
+        **_: object,  # frequency / as_of added by the scoped-run contract
     ) -> list[ProductForecast]:
         if self._fail:
             raise RuntimeError("engine unreachable")

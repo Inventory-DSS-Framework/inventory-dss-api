@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from app.modules.inventory.application.dtos import MovementDTO, StockLevelDTO
+from app.modules.inventory.application.ports import InboundCosting
 from app.modules.inventory.domain.entities import InventoryMovement
 from app.modules.inventory.domain.enums import MovementType
-from app.modules.inventory.domain.exceptions import InventoryMovementNotFoundError
+from app.modules.inventory.domain.exceptions import (
+    InvalidInventoryError,
+    InventoryMovementNotFoundError,
+)
 from app.modules.inventory.domain.repositories import InventoryMovementRepository
 from app.modules.inventory.domain.services import compute_stock_on_hand
 from app.modules.products.domain.repositories import ProductRepository
@@ -30,8 +35,16 @@ def _stock_on_hand(movements: InventoryMovementRepository, product_id: UUID) -> 
 
 
 class CreateMovement:
-    def __init__(self, movements: InventoryMovementRepository) -> None:
+    """Registers a movement. Inbound movements with a unit cost update the product's
+    weighted-average cost (via the costing port) before the movement is stored."""
+
+    def __init__(
+        self,
+        movements: InventoryMovementRepository,
+        costing: InboundCosting | None = None,
+    ) -> None:
         self._movements = movements
+        self._costing = costing
 
     def execute(
         self,
@@ -42,7 +55,16 @@ class CreateMovement:
         quantity: int,
         reason: str = "",
         occurred_at: datetime | None = None,
+        unit_cost: Decimal | None = None,
+        reference_type: str | None = None,
+        reference_id: UUID | None = None,
     ) -> MovementDTO:
+        if quantity <= 0:
+            raise InvalidInventoryError(message="La cantidad debe ser mayor a cero.")
+        if unit_cost is not None and unit_cost < 0:
+            raise InvalidInventoryError(message="El costo unitario no puede ser negativo.")
+        if movement_type == MovementType.INBOUND and unit_cost is not None and self._costing is not None:
+            self._costing.apply(company_id, product_id, quantity, unit_cost)
         movement = InventoryMovement(
             company_id=company_id,
             product_id=product_id,
@@ -50,6 +72,9 @@ class CreateMovement:
             quantity=Quantity(quantity),
             reason=reason,
             occurred_at=occurred_at or datetime.now(timezone.utc),
+            unit_cost=unit_cost,
+            reference_type=reference_type,
+            reference_id=reference_id,
         )
         return MovementDTO.from_entity(self._movements.add(movement))
 

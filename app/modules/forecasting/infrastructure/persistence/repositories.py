@@ -73,6 +73,10 @@ class SqlForecastRunRepository:
         model.started_at = run.started_at
         model.completed_at = run.completed_at
         model.error_message = run.error_message
+        # Reassign (never mutate in place) so SQLAlchemy detects the JSON change.
+        model.scope = dict(run.scope) if run.scope is not None else None
+        model.product_ids = list(run.product_ids) if run.product_ids is not None else None
+        model.frequency = run.frequency
         self._session.flush()
         return run_to_entity(model)
 

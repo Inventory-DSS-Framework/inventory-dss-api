@@ -14,7 +14,7 @@ from app.shared.presentation.deps import get_db
 
 
 def get_report_repository(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> ReportRepository:
     """Dependency provider for ReportRepository."""
     return SqlReportRepository(db)

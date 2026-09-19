@@ -38,6 +38,14 @@ class UserAlreadyExistsError(ConflictError):
         )
 
 
+class UsernameAlreadyExistsError(ConflictError):
+    def __init__(self, username: str) -> None:
+        super().__init__(
+            message=f"El usuario '{username}' ya existe. Elige otro.",
+            details={"username": username},
+        )
+
+
 class InvalidCompanyStateError(ValidationError):
     pass
 

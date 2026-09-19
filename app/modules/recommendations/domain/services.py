@@ -64,7 +64,8 @@ def suggest_reorder(inp: ReorderInputs) -> ReorderSuggestion | None:
 
     reason = (
         f"Stock actual {inp.current_stock}; demanda estimada en lead time "
-        f"({inp.lead_time_days}d) {demand_lead}. Reponer {quantity} unidades para "
-        f"alcanzar el nivel objetivo {order_up_to}."
+        f"({inp.lead_time_days}d) {demand_lead.quantize(Decimal('0.1'))}. Reponer "
+        f"{quantity} unidades para alcanzar el nivel objetivo "
+        f"{order_up_to.quantize(Decimal('0.1'))}."
     )
     return ReorderSuggestion(quantity=quantity, priority=priority, reason=reason)

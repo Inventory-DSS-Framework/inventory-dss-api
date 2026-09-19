@@ -1,10 +1,15 @@
 """Dashboard module — HTTP router."""
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
+
+from app.modules.dashboard.application.use_cases.erp_summary import GetErpSummary
+from app.modules.dashboard.infrastructure.persistence.erp_summary import SqlErpSummaryReader
+from app.shared.presentation.deps import get_db
 
 from app.modules.dashboard.application.use_cases.dashboard import (
     AddWidget,
@@ -27,6 +32,16 @@ from app.shared.presentation.deps import AuthenticatedUser, require_company_acce
 from app.shared.presentation.schemas import MessageResponse, PlaceholderResponse
 
 router = APIRouter()
+
+
+@router.get("/erp-summary")
+def get_erp_summary(
+    company_id: UUID,
+    db: Annotated[Session, Depends(get_db, scope="function")],
+    user: Annotated[AuthenticatedUser, Depends(require_company_access)],
+) -> dict[str, Any]:
+    """Sales, tickets, stock, purchases and lost sales — the ERP at a glance."""
+    return GetErpSummary(SqlErpSummaryReader(db)).execute(company_id)
 
 
 @router.get("/overview", response_model=DashboardOverviewResponse)

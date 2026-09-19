@@ -23,25 +23,25 @@ from app.shared.infrastructure.database import get_db
 
 
 def get_recommendation_repository(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> SqlRecommendationRepository:
     return SqlRecommendationRepository(db)
 
 
-def get_product_repository(db: Session = Depends(get_db)) -> SqlProductRepository:
+def get_product_repository(db: Session = Depends(get_db, scope="function")) -> SqlProductRepository:
     return SqlProductRepository(db)
 
 
-def get_run_repository(db: Session = Depends(get_db)) -> SqlForecastRunRepository:
+def get_run_repository(db: Session = Depends(get_db, scope="function")) -> SqlForecastRunRepository:
     return SqlForecastRunRepository(db)
 
 
-def get_result_repository(db: Session = Depends(get_db)) -> SqlForecastResultRepository:
+def get_result_repository(db: Session = Depends(get_db, scope="function")) -> SqlForecastResultRepository:
     return SqlForecastResultRepository(db)
 
 
 def get_movement_repository(
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db, scope="function"),
 ) -> SqlInventoryMovementRepository:
     return SqlInventoryMovementRepository(db)
 

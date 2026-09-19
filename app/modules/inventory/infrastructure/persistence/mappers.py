@@ -26,6 +26,9 @@ def movement_to_entity(model: InventoryMovementModel) -> InventoryMovement:
         quantity=Quantity(model.quantity),
         reason=model.reason,
         occurred_at=model.occurred_at,
+        unit_cost=model.unit_cost,
+        reference_type=model.reference_type,
+        reference_id=model.reference_id,
     )
 
 
@@ -38,6 +41,9 @@ def movement_to_model(entity: InventoryMovement) -> InventoryMovementModel:
         quantity=entity.quantity.value,
         reason=entity.reason,
         occurred_at=entity.occurred_at,
+        unit_cost=entity.unit_cost,
+        reference_type=entity.reference_type,
+        reference_id=entity.reference_id,
     )
 
 

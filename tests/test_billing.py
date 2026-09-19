@@ -58,7 +58,9 @@ class TestBillingUseCases:
         )
         assert updated2.status == SubscriptionStatus.CANCELED
 
-    def test_get_unknown_subscription_raises(self) -> None:
+    def test_unknown_subscription_falls_back_to_free_plan(self) -> None:
+        # A company without a subscription row is on the free plan (ERP + FTGM for 1 product).
         repo = FakeSubscriptionRepository()
-        with pytest.raises(SubscriptionNotFoundError):
-            GetSubscription(repo).execute(company_id=uuid4())
+        got = GetSubscription(repo).execute(company_id=uuid4())
+        assert got.plan_id == "free"
+        assert got.status == SubscriptionStatus.ACTIVE

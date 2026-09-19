@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from app.modules.inventory.domain.enums import MovementType, ReplenishmentStatus
@@ -12,7 +13,12 @@ from app.shared.domain.value_objects import Quantity
 
 @dataclass
 class InventoryMovement:
-    """Records an inventory movement (in/out/adjustment)."""
+    """Records an inventory movement (in/out/adjustment).
+
+    Quantity is always non-negative; the direction comes from `movement_type`
+    (outbound subtracts, inbound/adjustment add). A negative stock adjustment is
+    stored as an outbound movement with reference_type "adjustment".
+    """
 
     company_id: UUID
     product_id: UUID
@@ -21,6 +27,16 @@ class InventoryMovement:
     reason: str
     occurred_at: datetime
     id: UUID | None = None
+    # Valuation + traceability (optional for backwards compatibility).
+    unit_cost: Decimal | None = None
+    reference_type: str | None = None
+    reference_id: UUID | None = None
+
+    @property
+    def signed_quantity(self) -> int:
+        if self.movement_type == MovementType.OUTBOUND:
+            return -self.quantity.value
+        return self.quantity.value
 
 
 @dataclass

@@ -14,7 +14,7 @@ from app.shared.presentation.deps import get_db
 
 
 def get_validation_rule_repository(
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[Session, Depends(get_db, scope="function")],
 ) -> ValidationRuleRepository:
     """Dependency provider for ValidationRuleRepository."""
     return SqlValidationRuleRepository(db)

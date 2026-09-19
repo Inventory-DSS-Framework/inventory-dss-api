@@ -1,96 +1,104 @@
 # Despliegue en Railway
 
-Cada repo es un servicio en Railway. El código ya está listo: los Dockerfiles del API
-y el motor FTGM bindean `$PORT`, el web tiene un `Dockerfile.prod` de producción
-(seleccionado por su `railway.json`), el almacenamiento de archivos vive en Postgres
-(sobrevive reinicios) y `DATABASE_URL` se normaliza solo al driver psycopg.
+Un **proyecto** de Railway con 4 piezas. Cada repo es un servicio; todo se construye con
+Dockerfile y las migraciones corren solas al arrancar el API.
 
-| Componente | Repo | Cómo lo construye Railway |
+| Pieza | Repo | Cómo lo construye Railway |
 |---|---|---|
 | Base de datos | — | Plugin **PostgreSQL** de Railway |
-| Motor FTGM | `inventory-dss-ftgm-engine` | Dockerfile (bindea `$PORT`) |
-| API backend | `inventory-dss-api` | Dockerfile (migra + bindea `$PORT`) |
-| Frontend web | `inventory-dss-web` | **`Dockerfile.prod`** (vía `railway.json`) |
+| Motor FTGM | `inventory-dss-ftgm-engine` | `Dockerfile` (bindea `$PORT`, healthcheck `/health`) |
+| API backend | `inventory-dss-api` | `Dockerfile` (migra, carga la demo si `SEED_DEMO=true`, bindea `$PORT`) |
+| Frontend web | `inventory-dss-web` | **`Dockerfile.prod`** vía `railway.json` (build de producción de Next.js) |
 
-> Railway **ya no tiene tier gratis permanente**: da un trial (~$5 de crédito) y luego
-> pide plan **Hobby ($5/mes)**. Con 3 servicios + Postgres, el trial se agota rápido.
+> Railway no tiene tier gratis permanente: trial con crédito y luego plan **Hobby
+> (US$5/mes + uso)**. 3 servicios + Postgres entran cómodos en Hobby para una demo.
 
 ---
 
-## Orden de despliegue
+## 1. PostgreSQL
+**New → Database → PostgreSQL.** Railway crea `DATABASE_URL` (`postgresql://…`); el API
+la normaliza sola al driver psycopg.
 
-Crea **un proyecto** en Railway y dentro añade los servicios en este orden.
-
-### 1. PostgreSQL
-**New → Database → PostgreSQL.** Railway crea la variable `DATABASE_URL` (formato
-`postgresql://…`) que el API consumirá por referencia.
-
-### 2. Motor FTGM
-1. **New → GitHub Repo → `inventory-dss-ftgm-engine`.** Railway detecta el Dockerfile.
-2. **Settings → Networking → Generate Domain.** Copia la URL pública, p.ej.
+## 2. Motor FTGM
+1. **New → GitHub Repo → `inventory-dss-ftgm-engine`.**
+2. **Settings → Networking → Generate Domain.** Copia la URL, p. ej.
    `https://ftgm-production-xxxx.up.railway.app`.
-3. No necesita más variables. Verifica `…/health` → `{"status":"ok"}`.
+3. No necesita variables. Verifica `https://<ftgm>/health` → `{"status":"ok"}`.
 
-> **Por qué dominio público y no red privada:** la red privada de Railway
-> (`*.railway.internal`) es IPv6 y uvicorn escucha en IPv4 (`0.0.0.0`). Usar la URL
-> pública del FTGM para la llamada API→FTGM evita ese problema sin tocar nada.
+> Se usa la URL **pública** del motor (no `*.railway.internal`): la red privada de
+> Railway es IPv6 y uvicorn escucha en IPv4 (`0.0.0.0`).
 
-### 3. API
+## 3. API
 1. **New → GitHub Repo → `inventory-dss-api`.**
-2. **Variables** (Settings → Variables):
+2. **Variables:**
    ```
-   DATABASE_URL              = ${{Postgres.DATABASE_URL}}
-   FTGM_ENGINE_BASE_URL      = https://<tu-ftgm>.up.railway.app/api/v1
+   DATABASE_URL                = ${{Postgres.DATABASE_URL}}
+   FTGM_ENGINE_BASE_URL        = https://<tu-ftgm>.up.railway.app/api/v1
    FTGM_ENGINE_TIMEOUT_SECONDS = 90
-   JWT_SECRET_KEY            = <una-cadena-larga-aleatoria>
-   STORAGE_BACKEND           = db
-   APP_ENV                   = production
-   APP_DEBUG                 = false
-   CORS_ORIGINS              = http://localhost:3000   (temporal; se actualiza en el paso 5)
+   JWT_SECRET_KEY              = <cadena larga y aleatoria>
+   APP_ENV                     = production
+   APP_DEBUG                   = false
+   STORAGE_BACKEND             = db
+   CORS_ORIGIN_REGEX           = https://.*\.up\.railway\.app
+   SEED_DEMO                   = true
    ```
-   `${{Postgres.DATABASE_URL}}` es una **referencia de variable** de Railway: escríbela
-   tal cual, apuntando al nombre de tu servicio Postgres.
-3. **Generate Domain.** El arranque corre `alembic upgrade head` solo. Verifica `…/health`.
+   - `${{Postgres.DATABASE_URL}}` es una referencia de Railway: escríbela tal cual (con
+     el nombre de tu servicio Postgres).
+   - `CORS_ORIGIN_REGEX` deja pasar al web desde cualquier dominio `*.up.railway.app`,
+     así no dependes del orden de despliegue. Si luego usas un dominio propio, agrégalo
+     en `CORS_ORIGINS` (lista separada por comas).
+   - `SEED_DEMO=true` carga la demo **una sola vez** en la base vacía (ver abajo). Es
+     seguro dejarlo: si la demo ya existe, no hace nada.
+3. **Generate Domain.** El primer arranque migra y siembra la demo (~10–60 s). Verifica
+   `https://<api>/health` → `{"status":"ok"}`. El healthcheck espera hasta 300 s.
 
-### 4. Web
-1. **New → GitHub Repo → `inventory-dss-web`.** El `railway.json` hace que use
-   `Dockerfile.prod` (build de producción, no el dev).
+## 4. Web
+1. **New → GitHub Repo → `inventory-dss-web`.** El `railway.json` usa `Dockerfile.prod`.
 2. **Variables:**
    ```
    NEXT_PUBLIC_API_BASE_URL = https://<tu-api>.up.railway.app/api/v1
    ```
-   ⚠️ Esta variable se **hornea en el build** (Railway la pasa como build-arg). Si la
-   cambias después, hay que **redeploy**.
-3. **Generate Domain.** Copia la URL del web.
-
-### 5. Cerrar CORS
-Vuelve al servicio **API → Variables** y pon `CORS_ORIGINS` a la URL del web:
-```
-CORS_ORIGINS = https://<tu-web>.up.railway.app
-```
-Guarda → el API redepliega solo. Listo.
+   ⚠️ Se **hornea en el build**. Si la cambias, haz **Redeploy**.
+3. **Generate Domain** → abre la URL. Listo.
 
 ---
 
+## Datos de la demo (`SEED_DEMO=true`)
+`scripts/bootstrap_demo.py` crea, solo si no existe:
+
+| | |
+|---|---|
+| Empresa | **PetHouse Lima** — plan **Premium** activo (1 año) |
+| Dueño | `demo@pethouse.pe` / `Demo12345!` |
+| Vendedora (solo caja) | `lramos` / `Ventas2026!` |
+| Catálogo | 12 productos SKU-001…012 con código de barras EAN-13 (`7751234500013`…), árbol Perros/Gatos |
+| Historia | ventas diarias 2022–2024 + 2025→ayer con tickets POS, compras a 3 proveedores, movimientos de stock y quiebres |
+
+Probado en base vacía: ~18 000 ventas, 360 tickets, 169 compras en ~6 s.
+Para regenerar solo la historia reciente: `python scripts/seed_demo_history.py` (desde
+**Railway → API → Shell**).
+
 ## Mapa de comunicación
 ```
-Navegador ─► Web (Railway)
-Navegador ─► API   (NEXT_PUBLIC_API_BASE_URL, con CORS permitido)
-API       ─► FTGM  (FTGM_ENGINE_BASE_URL, URL pública)
+Navegador ─► Web  (Railway)
+Navegador ─► API  (NEXT_PUBLIC_API_BASE_URL, CORS por CORS_ORIGIN_REGEX)
+API       ─► FTGM (FTGM_ENGINE_BASE_URL, URL pública)
 API       ─► Postgres (DATABASE_URL, referencia del plugin)
 ```
 
-## Cargar datos (base de datos nueva)
-Es el mismo flujo por la UI: **Registro** (crea la empresa) → **Catálogo** (crea los 12
-productos SKU-001…012) → **Ventas** (sube `ventas.csv`) → **Preparar dataset** (siembra
-ventas + stock) → **Pronóstico** (auto-genera KPIs, recomendaciones y notificaciones).
-Para sembrar los productos por SQL, conéctate a la `DATABASE_URL` del Postgres de
-Railway y corre el mismo INSERT que usas en local.
+## Checklist
+- [x] Dockerfiles del API/FTGM bindean `$PORT`; dependencias en capa aparte (builds rápidos)
+- [x] `Dockerfile.prod` del web — `next build` de producción verificado (29 rutas, TypeScript limpio)
+- [x] `railway.json` en los 3 repos (API con healthcheck de 300 s por la siembra inicial)
+- [x] Migraciones automáticas (`alembic upgrade head`) al arrancar el API
+- [x] Demo auto-cargable e idempotente (`SEED_DEMO=true`)
+- [x] Logs SQL apagados por defecto (`APP_DEBUG=false`)
+- [ ] Variables puestas en el dashboard (pasos 3 y 4)
 
-## Checklist de "listo para subir"
-- [x] Dockerfiles del API/FTGM bindean `$PORT`
-- [x] `inventory-dss-web/Dockerfile.prod` (build de producción, `$PORT`)
-- [x] `railway.json` en los 3 repos (web apunta a `Dockerfile.prod`; API/FTGM con healthcheck `/health`)
-- [x] `DATABASE_URL` se normaliza a psycopg en `app/config.py`
-- [x] Almacenamiento en Postgres (`STORAGE_BACKEND=db`)
-- [ ] Variables puestas en el dashboard (paso 3, 4 y 5)
+## Problemas comunes
+| Síntoma | Causa / solución |
+|---|---|
+| Login falla con "Failed to fetch" | `NEXT_PUBLIC_API_BASE_URL` mal escrita o sin `/api/v1` → corrige y **Redeploy** del web |
+| Error CORS en la consola | Falta `CORS_ORIGIN_REGEX` (o tu dominio en `CORS_ORIGINS`) en el API |
+| Pronóstico queda en "failed" | `FTGM_ENGINE_BASE_URL` sin `/api/v1` o motor dormido; revisa `https://<ftgm>/health` |
+| No aparece la demo | `SEED_DEMO` no es `true`, o mira los logs del API (`bootstrap_demo: …`) |

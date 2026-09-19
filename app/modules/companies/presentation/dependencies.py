@@ -13,11 +13,11 @@ from app.shared.domain.errors import ValidationError
 from app.shared.infrastructure.database import get_db
 
 
-def get_company_repository(db: Session = Depends(get_db)) -> SqlCompanyRepository:
+def get_company_repository(db: Session = Depends(get_db, scope="function")) -> SqlCompanyRepository:
     return SqlCompanyRepository(db)
 
 
-def get_user_repository(db: Session = Depends(get_db)) -> SqlUserRepository:
+def get_user_repository(db: Session = Depends(get_db, scope="function")) -> SqlUserRepository:
     return SqlUserRepository(db)
 
 

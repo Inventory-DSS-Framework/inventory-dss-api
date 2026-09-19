@@ -12,6 +12,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 
 from app.modules.inventory.application.dtos import (
+    AdjustmentResultDTO,
+    InventoryOverviewDTO,
+    InventoryValuationDTO,
     MovementDTO,
     ReplenishmentDTO,
     SnapshotDTO,
@@ -42,7 +45,18 @@ from app.modules.inventory.domain.repositories import (
     StockoutEventRepository,
     StockSnapshotRepository,
 )
+from app.modules.inventory.application.use_cases.adjustment import AdjustStock
+from app.modules.inventory.domain.enums import AdjustmentMode, AdjustmentReason
+from app.modules.inventory.infrastructure.adapters.costing import (
+    SqlInboundCosting,
+    SqlStockReader,
+)
+from app.modules.inventory.infrastructure.persistence.overview import SqlInventoryOverviewQuery
+from app.modules.inventory.presentation.schemas import StockAdjustmentRequest
 from app.modules.inventory.presentation.dependencies import (
+    get_inbound_costing,
+    get_overview_query,
+    get_stock_reader,
     get_movement_repository,
     get_product_repository,
     get_replenishment_repository,
@@ -72,6 +86,46 @@ from app.shared.presentation.schemas import (
 )
 
 router = APIRouter()
+
+
+# --- Overview, valuation, adjustments -----------------------------------------
+@router.get("/overview", response_model=InventoryOverviewDTO)
+def get_inventory_overview(
+    company_id: UUID,
+    include_inactive: bool = False,
+    _: AuthenticatedUser = Depends(require_company_access),
+    query: SqlInventoryOverviewQuery = Depends(get_overview_query),
+) -> InventoryOverviewDTO:
+    """Main inventory table: every product with stock, value, status, coverage and sales."""
+    return query.overview(company_id, include_inactive=include_inactive)
+
+
+@router.get("/valuation", response_model=InventoryValuationDTO)
+def get_inventory_valuation(
+    company_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    query: SqlInventoryOverviewQuery = Depends(get_overview_query),
+) -> InventoryValuationDTO:
+    return query.valuation(company_id)
+
+
+@router.post("/adjustments", response_model=AdjustmentResultDTO, status_code=201)
+def create_adjustment(
+    company_id: UUID,
+    request: StockAdjustmentRequest,
+    _: AuthenticatedUser = Depends(require_company_access),
+    products: ProductRepository = Depends(get_product_repository),
+    movements: InventoryMovementRepository = Depends(get_movement_repository),
+    stock: SqlStockReader = Depends(get_stock_reader),
+) -> AdjustmentResultDTO:
+    return AdjustStock(products=products, movements=movements, stock=stock).execute(
+        company_id,
+        product_id=request.product_id,
+        mode=AdjustmentMode(request.mode),
+        quantity=request.quantity,
+        reason=AdjustmentReason(request.reason),
+        note=request.note,
+    )
 
 
 # --- Current stock (derived) -------------------------------------------------
@@ -117,14 +171,18 @@ def create_movement(
     request: CreateMovementRequest,
     _: AuthenticatedUser = Depends(require_company_access),
     repo: InventoryMovementRepository = Depends(get_movement_repository),
+    costing: SqlInboundCosting = Depends(get_inbound_costing),
 ) -> MovementDTO:
-    return CreateMovement(repo).execute(
+    return CreateMovement(repo, costing).execute(
         company_id,
         product_id=request.product_id,
         movement_type=parse_movement_type(request.movement_type),
         quantity=request.quantity,
         reason=request.reason,
         occurred_at=request.occurred_at,
+        unit_cost=request.unit_cost,
+        reference_type=request.reference_type,
+        reference_id=request.reference_id,
     )
 
 

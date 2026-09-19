@@ -69,7 +69,7 @@ class TestReportUseCases:
 
         # Verify storage
         content = storage.get(generated.file_path)
-        assert b"This is a STUB report" in content
+        assert b'"report_id"' in content and b'"type": "kpi"' in content
 
     def test_download_report(self) -> None:
         repo = FakeReportRepository()

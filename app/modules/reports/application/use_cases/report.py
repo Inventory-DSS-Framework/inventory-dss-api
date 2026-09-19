@@ -146,10 +146,15 @@ class GenerateReport:
             }
             for m in self._metrics.list_by_run(run.id)
         ]
+        meta = run.meta
         return {
             "run_id": str(run.id),
+            "alcance": meta.get("description") or "Dataset preparado",
+            "fecha_corte": meta.get("as_of"),
+            "frecuencia": run.frequency,
             "modelo": run.model_name,
             "horizonte_dias": run.horizon_days,
+            "resumen": meta.get("summary"),
             "productos": len(rows),
             "detalle": rows,
         }

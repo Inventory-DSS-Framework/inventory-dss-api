@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.modules.inventory.domain.entities import (
     InventoryMovement,
@@ -20,8 +22,12 @@ class MovementDTO(BaseModel):
     product_id: UUID
     movement_type: str
     quantity: int
+    signed_quantity: int
     reason: str
     occurred_at: datetime
+    unit_cost: Decimal | None = None
+    reference_type: str | None = None
+    reference_id: UUID | None = None
 
     @classmethod
     def from_entity(cls, m: InventoryMovement) -> MovementDTO:
@@ -32,14 +38,26 @@ class MovementDTO(BaseModel):
             product_id=m.product_id,
             movement_type=m.movement_type.value,
             quantity=m.quantity.value,
+            signed_quantity=m.signed_quantity,
             reason=m.reason,
             occurred_at=m.occurred_at,
+            unit_cost=m.unit_cost,
+            reference_type=m.reference_type,
+            reference_id=m.reference_id,
         )
 
 
 class StockLevelDTO(BaseModel):
     product_id: UUID
     quantity_on_hand: int
+
+
+class AdjustmentResultDTO(BaseModel):
+    product_id: UUID
+    previous_stock: int
+    new_stock: int
+    delta: int
+    movement: MovementDTO | None
 
 
 class SnapshotDTO(BaseModel):
@@ -99,3 +117,77 @@ class StockoutDTO(BaseModel):
             ended_at=e.ended_at,
             duration_days=e.duration_days(),
         )
+
+
+# --- Overview (main inventory table) ------------------------------------------
+StockStatus = Literal["sin_stock", "critico", "reordenar", "ok"]
+
+
+class InventoryOverviewItemDTO(BaseModel):
+    id: UUID
+    sku: str
+    name: str
+    description: str
+    barcode: str | None
+    image_url: str | None
+    category_id: UUID | None
+    category_name: str | None
+    category_path: list[str]
+    unit_cost: Decimal
+    last_cost: Decimal | None
+    unit_price: Decimal
+    currency: str
+    unit_of_measure: str
+    lead_time_days: int
+    safety_stock: int
+    reorder_point: int
+    is_active: bool
+    custom_attributes: dict[str, Any] = Field(default_factory=dict)
+    stock_on_hand: int
+    stock_value: Decimal
+    retail_value: Decimal
+    status: StockStatus
+    last_movement_at: datetime | None
+    units_sold_30d: int
+    coverage_days: float | None
+    lost_sales_30d: int
+
+
+class StatusCountsDTO(BaseModel):
+    sin_stock: int = 0
+    critico: int = 0
+    reordenar: int = 0
+    ok: int = 0
+
+
+class InventoryTotalsDTO(BaseModel):
+    products: int
+    units_on_hand: int
+    inventory_value_cost: Decimal
+    inventory_value_retail: Decimal
+    potential_margin: Decimal
+    status_counts: StatusCountsDTO
+
+
+class InventoryOverviewDTO(BaseModel):
+    items: list[InventoryOverviewItemDTO]
+    totals: InventoryTotalsDTO
+    generated_at: datetime
+
+
+# --- Valuation ---------------------------------------------------------------
+class ValuationGroupDTO(BaseModel):
+    category_id: UUID | None
+    name: str
+    path: list[str]
+    products: int
+    units: int
+    value_cost: Decimal
+    value_retail: Decimal
+    share_pct: float
+
+
+class InventoryValuationDTO(BaseModel):
+    totals: InventoryTotalsDTO
+    by_category: list[ValuationGroupDTO]
+    by_brand: list[ValuationGroupDTO]

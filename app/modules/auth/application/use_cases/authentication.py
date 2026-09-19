@@ -93,12 +93,22 @@ class Login:
     def __init__(self, users: UserRepository) -> None:
         self._users = users
 
-    def execute(self, *, email: str, password: str) -> TokenDTO:
-        user = self._users.get_by_email(email)
+    def execute(
+        self, *, password: str, identifier: str | None = None, email: str | None = None
+    ) -> TokenDTO:
+        """Sign in with an email or a username (sellers have no email)."""
+        login = (identifier or email or "").strip().lower()
+        user = None
+        if login:
+            user = (
+                self._users.get_by_email(login)
+                if "@" in login
+                else self._users.get_by_username(login)
+            )
         if user is None or not verify_password(password, user.hashed_password):
-            raise UnauthorizedError(message="Invalid email or password")
+            raise UnauthorizedError(message="Usuario o contraseña incorrectos")
         if user.status == UserStatus.DISABLED:
-            raise ForbiddenError(message="User account is disabled")
+            raise ForbiddenError(message="Tu usuario está desactivado. Consulta con el administrador.")
         user.record_login()
         self._users.update(user)
         return _issue_tokens(user)
