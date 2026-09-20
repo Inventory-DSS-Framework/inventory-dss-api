@@ -102,3 +102,8 @@ API       ─► Postgres (DATABASE_URL, referencia del plugin)
 | Error CORS en la consola | Falta `CORS_ORIGIN_REGEX` (o tu dominio en `CORS_ORIGINS`) en el API |
 | Pronóstico queda en "failed" | `FTGM_ENGINE_BASE_URL` sin `/api/v1` o motor dormido; revisa `https://<ftgm>/health` |
 | No aparece la demo | `SEED_DEMO` no es `true`, o mira los logs del API (`bootstrap_demo: …`) |
+
+
+## Modo demo sin engine
+
+Para demos sin pagar el servicio del engine: en las variables del API pon `FTGM_ENGINE_MODE=mock` y apaga `inventory-dss-ftgm-engine`. Las predicciones se generan localmente (ver `sales-mock-data/perfiles-demo/INSTRUCCIONES.txt`). Vuelve con `FTGM_ENGINE_MODE=real`.

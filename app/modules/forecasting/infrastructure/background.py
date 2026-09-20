@@ -19,7 +19,9 @@ from app.modules.data_preparation.infrastructure.persistence.repositories import
     SqlPreparedDatasetRepository,
 )
 from app.modules.forecasting.application.use_cases.execution import ExecuteForecastRun
+from app.config import settings
 from app.modules.forecasting.infrastructure.adapters.ftgm_adapter import FtgmHttpAdapter
+from app.modules.forecasting.infrastructure.adapters.mock_ftgm import MockFtgmAdapter
 from app.modules.forecasting.infrastructure.persistence.repositories import (
     SqlForecastMetricsRepository,
     SqlForecastResultRepository,
@@ -58,7 +60,7 @@ def run_forecast_job(run_id: UUID) -> None:
             results=SqlForecastResultRepository(db),
             metrics=SqlForecastMetricsRepository(db),
             datasets=SqlPreparedDatasetRepository(db),
-            engine=FtgmHttpAdapter(),
+            engine=MockFtgmAdapter(db) if settings.ftgm_engine_mode == "mock" else FtgmHttpAdapter(),
         ).execute(run_id)
 
         # On success, populate KPIs + recommendations (best-effort, never fails the run).

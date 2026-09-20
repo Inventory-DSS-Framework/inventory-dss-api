@@ -47,7 +47,7 @@ from app.modules.forecasting.domain.repositories import (
     ForecastRunRepository,
 )
 from app.modules.forecasting.infrastructure.background import run_forecast_job
-from app.modules.forecasting.infrastructure.plan import company_is_premium
+from app.modules.forecasting.infrastructure.plan import FREE_MONTHLY_RUNS, company_is_premium, runs_used_this_month
 from app.modules.forecasting.presentation.dependencies import (
     get_dataset_repository,
     get_erp_source,
@@ -107,7 +107,12 @@ def create_run(
         )
     is_premium = lambda cid: company_is_premium(session, cid)  # noqa: E731
     run = CreateScopedForecastRun(
-        repo, datasets, PreviewForecastScope(source, is_premium), is_premium
+        repo,
+        datasets,
+        PreviewForecastScope(source, is_premium),
+        is_premium,
+        lambda cid: runs_used_this_month(session, cid),
+        FREE_MONTHLY_RUNS,
     ).execute(
         company_id,
         scope=request.scope.as_dict(),
@@ -120,6 +125,24 @@ def create_run(
     # always finds the run.
     background_tasks.add_task(run_forecast_job, run.id)
     return run
+
+
+@runs_router.get("/quota")
+def get_forecast_quota(
+    company_id: UUID,
+    _: AuthenticatedUser = Depends(require_company_access),
+    session: Session = Depends(get_session),
+) -> dict[str, Any]:
+    """How many predictions the plan still allows this month (null limit = unlimited)."""
+    premium = company_is_premium(session, company_id)
+    used = runs_used_this_month(session, company_id)
+    limit = None if premium else FREE_MONTHLY_RUNS
+    return {
+        "plan": "premium" if premium else "free",
+        "monthly_limit": limit,
+        "used": used,
+        "remaining": None if limit is None else max(0, limit - used),
+    }
 
 
 @runs_router.get("", response_model=list[ForecastRunDTO])

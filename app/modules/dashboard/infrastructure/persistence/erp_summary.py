@@ -102,13 +102,21 @@ class SqlErpSummaryReader:
                 {"date": d.isoformat(), "revenue": round(r, 2), "units": u, "tickets": int(tickets_by_day.get(d, 0))}
             )
 
-        # Top products (30d) by revenue.
-        top_rows = self._s.execute(
+        # Per-product sales (30d): feeds the top AND bottom rankings.
+        per_product = self._s.execute(
             select(sub.c.product_id, func.sum(sub.c.total_amount).label("rev"), func.sum(sub.c.quantity))
             .group_by(sub.c.product_id)
             .order_by(func.sum(sub.c.total_amount).desc())
-            .limit(6)
         ).all()
+        top_rows = per_product[:6]
+
+        # Gross margin (30d): what was sold minus what those units cost.
+        cost_30 = _f(
+            self._s.execute(
+                select(func.coalesce(func.sum(func.coalesce(sub.c.unit_cost, 0) * sub.c.quantity), 0))
+            ).scalar_one()
+        )
+        gross_margin_30 = rev_30 - cost_30
 
         products = {
             p.id: p
@@ -149,6 +157,26 @@ class SqlErpSummaryReader:
                     }
                 )
         low_stock.sort(key=lambda r: (r["on_hand"] - r["safety_stock"], r["on_hand"]))
+
+        # Bottom products (30d): active, with stock on hand, fewest units sold — the
+        # money sitting on the shelf. Products never sold in the window count as 0.
+        sold_units = {pid: int(u or 0) for pid, _, u in per_product}
+        sold_rev = {pid: _f(r) for pid, r, _ in per_product}
+        bottom_products = sorted(
+            (
+                {
+                    "product_id": str(pid),
+                    "sku": p.sku,
+                    "name": p.name,
+                    "revenue": round(sold_rev.get(pid, 0.0), 2),
+                    "units": sold_units.get(pid, 0),
+                    "on_hand": stock.get(pid, 0),
+                }
+                for pid, p in products.items()
+                if stock.get(pid, 0) > 0
+            ),
+            key=lambda r: (r["units"], -r["on_hand"]),
+        )[:6]
 
         month_start = today.replace(day=1)
         purchases_total, purchases_count = self._s.execute(
@@ -197,6 +225,9 @@ class SqlErpSummaryReader:
             "lost_sales_30d_attempts": int(lost_attempts or 0),
             "lost_sales_30d_units": int(lost_units or 0),
             "top_products": top_products,
+            "bottom_products": bottom_products,
+            "gross_margin_30d": round(gross_margin_30, 2),
+            "margin_pct_30d": round(gross_margin_30 / rev_30 * 100, 1) if rev_30 > 0 else None,
             "sales_by_day": sales_by_day,
             "has_forecast": latest_run is not None,
         }

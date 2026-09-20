@@ -22,17 +22,21 @@ from app.shared.domain.errors import ForbiddenError, ValidationError
 from app.shared.domain.value_objects import DateRange
 
 FREE_PLAN_MESSAGE = (
-    "El plan gratuito permite aplicar el motor FTGM a un solo producto. "
-    "Activa Premium para pronosticar todo tu catálogo."
+    "Ya usaste tus {limit} predicciones gratis de este mes. "
+    "Con Premium predices sin límites, o espera al próximo mes."
 )
 FREQUENCIES = ("auto", "monthly", "weekly")
 
 
-def enforce_plan(is_premium: bool, scope: dict[str, Any]) -> None:
+def enforce_plan(is_premium: bool, runs_used: int, monthly_limit: int) -> None:
+    """Free plan: any scope (whole catalog included), but only a few runs per month."""
     if is_premium:
         return
-    if scope.get("type") != "products" or len(scope.get("product_ids") or []) != 1:
-        raise ForbiddenError(message=FREE_PLAN_MESSAGE, details={"plan": "free", "limit_products": 1})
+    if runs_used >= monthly_limit:
+        raise ForbiddenError(
+            message=FREE_PLAN_MESSAGE.format(limit=monthly_limit),
+            details={"plan": "free", "monthly_limit": monthly_limit, "used": runs_used},
+        )
 
 
 def _resolve_as_of(as_of: date | None) -> date:
@@ -77,7 +81,7 @@ class PreviewForecastScope:
     def execute(
         self, company_id: UUID, scope: dict[str, Any], frequency: str = "auto", as_of: date | None = None
     ) -> dict[str, Any]:
-        enforce_plan(self._is_premium(company_id), scope)
+        # Previewing is free on every plan; the quota only counts launched runs.
         preview, _ = self.build(company_id, scope, frequency, as_of)
         return preview
 
@@ -91,11 +95,15 @@ class CreateScopedForecastRun:
         datasets: PreparedDatasetRepository,
         preview: PreviewForecastScope,
         is_premium: Callable[[UUID], bool],
+        runs_used: Callable[[UUID], int],
+        monthly_limit: int,
     ) -> None:
         self._runs = runs
         self._datasets = datasets
         self._preview = preview
         self._is_premium = is_premium
+        self._runs_used = runs_used
+        self._monthly_limit = monthly_limit
 
     def execute(
         self,
@@ -107,7 +115,7 @@ class CreateScopedForecastRun:
         model_name: str = "FTGM",
         as_of: date | None = None,
     ) -> ForecastRunDTO:
-        enforce_plan(self._is_premium(company_id), scope)
+        enforce_plan(self._is_premium(company_id), self._runs_used(company_id), self._monthly_limit)
         cutoff = _resolve_as_of(as_of)
         preview, histories = self._preview.build(company_id, scope, frequency, cutoff)
         included_ids = {r["product_id"] for r in preview["products"] if r["included"]}

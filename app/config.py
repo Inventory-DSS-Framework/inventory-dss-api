@@ -25,6 +25,9 @@ class Settings(BaseSettings):
 
     # FTGM Engine
     ftgm_engine_base_url: str = "http://localhost:8010/api/v1"
+    # "real" calls the deployed FTGM engine; "mock" answers locally with demo-grade
+    # predictions (no engine needed) — see adapters/mock_ftgm.py.
+    ftgm_engine_mode: str = "real"
     ftgm_engine_timeout_seconds: int = 120
     # Seasonal period the engine forecasts on (12 = monthly). Drives day->period mapping.
     ftgm_seasonal_period: int = 12
