@@ -91,6 +91,9 @@ _PROFILES: dict[str, dict[str, Any]] = {
 
 _MODELS = ("FTGM", "FTGMCombo")
 
+# Shown on every result produced by the demo engine (never by the real one).
+MOCK_NOTICE = "Cálculo listo — SUFICIENTE ventas para REALIZAR PREDICCIÓN."
+
 
 def profile_name_for(names: list[str]) -> str:
     """Which demo profile a catalogue belongs to (lowercase product names)."""
@@ -172,6 +175,15 @@ class MockFtgmAdapter:
         level = sum(v * w for v, w in zip(values, weights)) / (sum(weights) or 1.0)
         recent = sum(values[-4:]) / max(1, len(values[-4:]))
 
+        # How fast the product really moves. Everything downstream (forecast shape and the
+        # advice the screens show) has to stay consistent with this: something that sold 6
+        # units in a year can never end up with an aggressive restock suggestion, and
+        # something selling 150 a month must not be under-forecast into a stock-out.
+        total_units = sum(values)
+        months = max(1.0, (step * len(values)) / 30.44)
+        per_month = total_units / months
+        rotation = "baja" if (per_month < 2.0 or total_units < 10) else "alta" if per_month >= 40 else "media"
+
         seed = _seed(s.product_id)
         acc_lo, acc_hi = profile["acc"]
         accuracy = round(acc_lo + (acc_hi - acc_lo) * seed, 1)
@@ -196,13 +208,27 @@ class MockFtgmAdapter:
             )
 
         # Forecast: level × seasonal shape × gentle growth, ± band from the accuracy.
+        # Slow movers get no growth and no seasonal amplification (a product that barely
+        # sells does not suddenly triple); fast movers are floored at their recent pace.
+        base_level = level
+        if rotation == "baja":
+            per_period_growth = 0.0
+        elif rotation == "alta":
+            base_level = max(level, recent)
         n_fc = max(1, round(horizon_days / step))
         spread = (100.0 - accuracy) / 100.0 + 0.08
         points: list[ForecastPoint] = []
+        prev = float(values[-1]) if values else base_level
         for k in range(1, n_fc + 1):
             d = as_of + timedelta(days=step * (k - 1))
-            mult = season[d.month - 1]
-            value = max(0.0, level * mult * (1 + per_period_growth * k))
+            mult = min(1.0, season[d.month - 1]) if rotation == "baja" else season[d.month - 1]
+            value = max(0.0, base_level * mult * (1 + per_period_growth * k))
+            if rotation == "baja":
+                value = min(value, base_level)
+            # No jump out of the gate: the first forecast period leans on the last observed
+            # one, so the chart line continues instead of breaking.
+            if k == 1:
+                value = 0.45 * prev + 0.55 * value
             points.append(
                 ForecastPoint(
                     period_date=d,
@@ -214,16 +240,39 @@ class MockFtgmAdapter:
 
         fc_rate = float(points[0].predicted_demand) if points else 0.0
         trend_pct = round((fc_rate / recent - 1) * 100, 1) if recent > 0 else None
-        total_units = sum(values)
         mae = round(max(0.2, recent * (100 - accuracy) / 100.0), 3)
         model = _MODELS[int(seed * 10) % 2]
         order = 1 + int(_seed(s.product_id, "o") * 2)  # 1..2
+
+        per_unit = "semana" if weekly else "mes"
+        if rotation == "baja":
+            rotation_note = (
+                f"Rotación baja: {round(total_units)} unidades en {round(months)} meses "
+                f"(≈{per_month:.1f} al mes). Mantén stock bajo: no conviene reponer."
+            )
+            advice = "no_reponer"
+        elif rotation == "alta":
+            rotation_note = (
+                f"Rotación alta: ≈{per_month:.0f} unidades al mes y {fc_rate:.0f} previstas "
+                f"para la próxima {per_unit}. Prioriza la reposición para no quebrar stock."
+            )
+            advice = "reponer_prioritario"
+        else:
+            rotation_note = f"Rotación estable: ≈{per_month:.1f} unidades al mes."
+            advice = "normal"
 
         diagnostics: dict[str, Any] = {
             "frequency": freq_label,
             "accuracy_pct": accuracy,
             "forecast_vs_recent_pct": trend_pct,
+            # The demo engine identifies itself so the screens can label the result.
+            "engine": "mock",
+            "mock_notice": MOCK_NOTICE,
+            "rotation": rotation,
+            "units_per_month": round(per_month, 2),
+            "advice": advice,
             "explanation": profile["story"],
+            "explanations": [profile["story"], rotation_note],
             "holdout": {
                 "origins": 6,
                 "horizon": n_fc,
