@@ -36,6 +36,18 @@ SENTINELS: dict[str, str] = {
     "oxford cuero": "calzado",
 }
 
+# Fallback detection when the sentinel was renamed or removed: score the whole catalogue
+# against each profile's vocabulary and take the best one (≥ _FINGERPRINT_MIN hits). This
+# also recognises a real shop that never saw the demo spreadsheets.
+_FINGERPRINTS: dict[str, tuple[str, ...]] = {
+    "perfumes": ("oud", "perfume", "fragancia", "lattafa", "ml", "eau de", "attar", "almizcle", "decant"),
+    "skincare": ("serum", "sérum", "esencia", "crema", "mascarilla", "tónico", "tonico", "spf", "niacinamida", "retinol", "limpiador"),
+    "vintage": ("vintage", "casaca", "jean", "polo", "camisa", "chompa", "falda", "denim", "franela"),
+    "apple": ("iphone", "ipad", "macbook", "airpods", "apple watch", "magsafe", "usb-c", "case"),
+    "calzado": ("oxford", "derby", "botín", "botin", "mocasín", "mocasin", "zapatilla", "loafer", "cuero", "chelsea"),
+}
+_FINGERPRINT_MIN = 2
+
 # Per-profile flavour: month multipliers (Jan..Dec), yearly growth, accuracy band and
 # the sentence the result screen shows as the model's explanation.
 _PROFILES: dict[str, dict[str, Any]] = {
@@ -80,6 +92,19 @@ _PROFILES: dict[str, dict[str, Any]] = {
 _MODELS = ("FTGM", "FTGMCombo")
 
 
+def profile_name_for(names: list[str]) -> str:
+    """Which demo profile a catalogue belongs to (lowercase product names)."""
+    for sentinel, profile in SENTINELS.items():
+        if any(sentinel in n for n in names):
+            return profile
+    scores = {
+        profile: sum(1 for kw in words if any(kw in n for n in names))
+        for profile, words in _FINGERPRINTS.items()
+    }
+    best = max(scores, key=lambda p: scores[p])
+    return best if scores[best] >= _FINGERPRINT_MIN else "general"
+
+
 def _seed(product_id: Any, salt: str = "") -> float:
     """Deterministic 0..1 per product: same product, same demo numbers, every run."""
     digest = hashlib.md5(f"{product_id}{salt}".encode()).hexdigest()
@@ -94,6 +119,7 @@ class MockFtgmAdapter:
 
     # -- profile detection ---------------------------------------------------
     def _profile_for(self, series: list[PreparedTimeSeries]) -> dict[str, Any]:
+        """Sentinel product first (the documented switch), then a catalogue fingerprint."""
         ids = [s.product_id for s in series]
         names = [
             (n or "").lower()
@@ -101,10 +127,7 @@ class MockFtgmAdapter:
                 select(ProductModel.name).where(ProductModel.id.in_(ids))
             ).scalars()
         ]
-        for sentinel, profile in SENTINELS.items():
-            if any(sentinel in n for n in names):
-                return _PROFILES[profile]
-        return _PROFILES["general"]
+        return _PROFILES[profile_name_for(names)]
 
     # -- main entry ----------------------------------------------------------
     def forecast(
